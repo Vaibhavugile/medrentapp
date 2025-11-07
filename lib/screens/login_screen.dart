@@ -1,102 +1,158 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../services/auth_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+import '../marketing/marketing_home.dart'; // <- path from /screens
+import 'home_shell.dart';                  // driver shell
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
+
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _auth = AuthService();
-  String mode = 'phone'; // or 'email'
-  String phone = '';
-  String email = '';
-  String pass = '';
-  String smsCode = '';
-  String? verificationId;
-  bool loading = false;
+  final _email = TextEditingController();
+  final _pass = TextEditingController();
+  bool _loading = false;
+  bool _obscure = true;
 
   @override
-  void initState() {
-    super.initState();
-    _auth.authChanges.listen((u) {
-      if (u != null) Navigator.pushReplacementNamed(context, '/home');
-    });
+  void dispose() {
+    _email.dispose();
+    _pass.dispose();
+    super.dispose();
   }
 
-  Future<void> sendOtp() async {
-    if (!phone.startsWith('+')) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Use +countrycode...')));
+  Future<void> _routeAfterLogin(BuildContext context) async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final db = FirebaseFirestore.instance;
+
+    // 1) Try marketing/{uid}
+    final docById = await db.collection('marketing').doc(uid).get();
+    if (docById.exists && (docById.data()?['active'] == true)) {
+      final name = (docById.data()?['name'] ?? 'Marketing').toString();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => MarketingHome(userId: uid, userName: name)),
+      );
       return;
     }
-    setState(() => loading = true);
-    await _auth.verifyPhone(
-      phone: phone,
-      onVerified: (cred) async => FirebaseAuth.instance.signInWithCredential(cred),
-      onCodeSent: (id, _) { setState(() { verificationId = id; loading = false; }); },
-      onFailed: (e) { setState(() => loading = false); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? 'OTP failed'))); },
+
+    // 2) Try marketing where authUid == uid
+    final q = await db
+        .collection('marketing')
+        .where('authUid', isEqualTo: uid)
+        .limit(1)
+        .get();
+    if (q.docs.isNotEmpty && (q.docs.first.data()['active'] == true)) {
+      final d = q.docs.first.data();
+      final name = (d['name'] ?? 'Marketing').toString();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => MarketingHome(userId: uid, userName: name)),
+      );
+      return;
+    }
+
+    // 3) Optional: users/{uid}.role == 'marketing'
+    final userDoc = await db.collection('users').doc(uid).get();
+    if (userDoc.exists && (userDoc.data()?['role'] == 'marketing')) {
+      final name = (userDoc.data()?['name'] ?? 'Marketing').toString();
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => MarketingHome(userId: uid, userName: name)),
+      );
+      return;
+    }
+
+    // 4) Fallback to driver shell
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const HomeShell()),
     );
   }
 
-  Future<void> verifyOtp() async {
-    if (verificationId == null) return;
-    setState(() => loading = true);
-    try {
-      await _auth.signInWithSmsCode(verificationId!, smsCode);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid code')));
-    } finally {
-      setState(() => loading = false);
+  Future<void> _login() async {
+    if (_loading) return;
+    final email = _email.text.trim();
+    final pass = _pass.text.trim();
+    if (email.isEmpty || pass.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter email and password')),
+      );
+      return;
     }
-  }
-
-  Future<void> emailLogin() async {
-    setState(() => loading = true);
-    try { await _auth.signInWithEmail(email, pass); }
-    catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Login failed'))); }
-    finally { setState(() => loading = false); }
+    setState(() => _loading = true);
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pass);
+      await _routeAfterLogin(context);
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? 'Login failed')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Login failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = Theme.of(context).colorScheme;
     return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Card(
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const SizedBox(height: 8),
-                Text('Driver Login', style: TextStyle(fontWeight: FontWeight.w800, color: c.primary, fontSize: 22)),
-                const SizedBox(height: 12),
-                ToggleButtons(
-                  isSelected: [mode == 'phone', mode == 'email'],
-                  onPressed: (i) => setState(() => mode = i == 0 ? 'phone' : 'email'),
-                  children: const [Padding(padding: EdgeInsets.all(8), child: Text('Phone')), Padding(padding: EdgeInsets.all(8), child: Text('Email'))],
-                ),
-                const SizedBox(height: 12),
-                if (mode == 'phone') ...[
-                  TextField(decoration: const InputDecoration(labelText: 'Phone (+91...)'), onChanged: (v) => phone = v),
-                  const SizedBox(height: 8),
-                  if (verificationId == null)
-                    FilledButton(onPressed: loading ? null : sendOtp, child: Text(loading ? 'Sending…' : 'Send OTP'))
-                  else ...[
-                    TextField(decoration: const InputDecoration(labelText: 'OTP'), onChanged: (v) => smsCode = v),
-                    const SizedBox(height: 8),
-                    FilledButton(onPressed: loading ? null : verifyOtp, child: Text(loading ? 'Verifying…' : 'Verify & Sign in')),
-                  ],
-                ] else ...[
-                  TextField(decoration: const InputDecoration(labelText: 'Email'), onChanged: (v) => email = v),
-                  const SizedBox(height: 8),
-                  TextField(obscureText: true, decoration: const InputDecoration(labelText: 'Password'), onChanged: (v) => pass = v),
-                  const SizedBox(height: 8),
-                  FilledButton(onPressed: loading ? null : emailLogin, child: Text(loading ? 'Signing in…' : 'Sign in')),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: 32),
+                  Text('Sign in', style: Theme.of(context).textTheme.headlineMedium),
+                  const SizedBox(height: 24),
+                  TextField(
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      prefixIcon: Icon(Icons.email_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _pass,
+                    obscureText: _obscure,
+                    decoration: InputDecoration(
+                      labelText: 'Password',
+                      prefixIcon: const Icon(Icons.lock_outline),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscure ? Icons.visibility : Icons.visibility_off),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      ),
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _loading ? null : _login,
+                      child: Text(_loading ? 'Signing in…' : 'Sign in'),
+                    ),
+                  ),
                 ],
-              ]),
+              ),
             ),
           ),
         ),
