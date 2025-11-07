@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "670949336345",
+    "project_id": "mdrent-38d1e",
+    "storage_bucket": "mdrent-38d1e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:670949336345:android:6160c163ffe0437ae35188",
+        "android_client_info": {
+          "package_name": "com.example.driver_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYt8ap0Bd7_jluWGUtlmcnsvyJqve_jGw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
