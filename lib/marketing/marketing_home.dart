@@ -1,12 +1,12 @@
+// marketing_home.dart
 import 'package:flutter/material.dart';
 import '../screens/attendance_screen.dart';
-// reuse your existing attendance screen
 import 'screens/marketing_visits_screen.dart';
 import 'screens/leads_screen.dart';
 import 'screens/today_screen.dart';
 
 class MarketingHome extends StatefulWidget {
-  final String userId;
+  final String userId;   // this must be the marketing DOC ID, not auth UID
   final String userName;
   const MarketingHome({super.key, required this.userId, required this.userName});
 
@@ -23,7 +23,11 @@ class _MarketingHomeState extends State<MarketingHome> {
       TodayScreen(userId: widget.userId, userName: widget.userName),
       MarketingVisitsScreen(userId: widget.userId, userName: widget.userName),
       LeadsScreen(userId: widget.userId, userName: widget.userName),
-      AttendanceScreen(driverId: widget.userId, driverName: widget.userName), // reuse
+      AttendanceScreen(
+        userId: widget.userId,
+        userName: widget.userName,
+        collectionRoot: 'marketing', // <-- IMPORTANT
+      ),
     ];
 
     return Scaffold(

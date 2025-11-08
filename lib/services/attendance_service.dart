@@ -4,27 +4,36 @@ import 'package:intl/intl.dart';
 class AttendanceService {
   final _db = FirebaseFirestore.instance;
 
+  /// Root collection to write under: pass 'drivers' or 'marketing'
+  final String collectionRoot;
+
+  AttendanceService({required this.collectionRoot});
+
   String todayISO() => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
   DocumentReference<Map<String, dynamic>> attRef(String driverId, String date) =>
-    _db.doc('drivers/$driverId/attendance/$date');
+      _db.doc('$collectionRoot/$driverId/attendance/$date');
 
   CollectionReference<Map<String, dynamic>> locsCol(String driverId, String date) =>
-    _db.collection('drivers/$driverId/attendance/$date/locations');
+      _db.collection('$collectionRoot/$driverId/attendance/$date/locations');
 
   DocumentReference<Map<String, dynamic>> liveTodayDoc(String driverId, String date) =>
-    _db.doc('drivers/$driverId/attendance/$date/live/current');
+      _db.doc('$collectionRoot/$driverId/attendance/$date/live/current');
 
   DocumentReference<Map<String, dynamic>> driverLiveDoc(String driverId) =>
-    _db.doc('drivers/$driverId/liveToday/current');
+      _db.doc('$collectionRoot/$driverId/liveToday/current');
 
   Future<Map<String, dynamic>?> load(String driverId, String date) async {
     final snap = await attRef(driverId, date).get();
     return snap.data();
   }
 
-  Future<void> checkIn(String driverId, String driverName,
-      {String? note, String? uid}) async {
+  Future<void> checkIn(
+    String driverId,
+    String driverName, {
+    String? note,
+    String? uid,
+  }) async {
     final date = todayISO();
     final ref = attRef(driverId, date);
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -48,25 +57,34 @@ class AttendanceService {
     final date = todayISO();
     final ref = attRef(driverId, date);
     final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Update the attendance row
     await ref.update({
       'checkOutMs': now,
       'checkOutServer': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedBy': uid ?? '',
     });
-    // mark live docs ended
-    await liveTodayDoc(driverId, date).set({'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
-    await driverLiveDoc(driverId).set({'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+
+    // Mark live docs ended
+    await liveTodayDoc(driverId, date)
+        .set({'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+    await driverLiveDoc(driverId)
+        .set({'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
   }
 
-  Future<void> markStatus(String driverId, String status,
-      {String? note, String? uid}) async {
+  Future<void> markStatus(
+    String driverId,
+    String status, {
+    String? note,
+    String? uid,
+  }) async {
     final date = todayISO();
     final ref = attRef(driverId, date);
     await ref.set({
       'date': date,
       'driverId': driverId,
-      'status': status, // leave | absent | half_day | late
+      'status': status, // leave | absent | half_day | late | present
       'note': note ?? '',
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedBy': uid ?? '',
@@ -75,8 +93,14 @@ class AttendanceService {
     }, SetOptions(merge: true));
   }
 
-  Future<void> savePoint(String driverId, double lat, double lng,
-      {double? accuracy, double? speed, double? heading}) async {
+  Future<void> savePoint(
+    String driverId,
+    double lat,
+    double lng, {
+    double? accuracy,
+    double? speed,
+    double? heading,
+  }) async {
     final date = todayISO();
     final now = DateTime.now().millisecondsSinceEpoch;
     final payload = {

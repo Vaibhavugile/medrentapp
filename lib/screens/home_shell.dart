@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../marketing/marketing_home.dart';
 
@@ -41,39 +42,63 @@ class _HomeShellState extends State<HomeShell> {
     // 1) marketing/{uid}
     final byId = await db.collection('marketing').doc(user.uid).get();
     if (byId.exists && (byId.data()?['active'] == true)) {
+      final marketingDocId = byId.id; // <-- USE DOC ID
       final name = (byId.data()?['name'] ?? 'Marketing').toString();
+
+      try { await FlutterForegroundTask.stopService(); } catch (_) {}
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => MarketingHome(userId: user.uid, userName: name)),
+        MaterialPageRoute(
+          builder: (_) => MarketingHome(userId: marketingDocId, userName: name),
+        ),
       );
       return;
     }
 
-    // 2) marketing where authUid == uid
+    // 2) marketing where authUid == uid  (most common)
     final q = await db
         .collection('marketing')
         .where('authUid', isEqualTo: user.uid)
         .limit(1)
         .get();
     if (q.docs.isNotEmpty && (q.docs.first.data()['active'] == true)) {
-      final name = (q.docs.first.data()['name'] ?? 'Marketing').toString();
+      final doc = q.docs.first;
+      final marketingDocId = doc.id; // <-- USE DOC ID
+      final name = (doc.data()['name'] ?? 'Marketing').toString();
+
+      try { await FlutterForegroundTask.stopService(); } catch (_) {}
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => MarketingHome(userId: user.uid, userName: name)),
+        MaterialPageRoute(
+          builder: (_) => MarketingHome(userId: marketingDocId, userName: name),
+        ),
       );
       return;
     }
 
-    // 3) Optional: users/{uid}.role == 'marketing'
+    // 3) users/{uid}.role == 'marketing'  -> resolve real marketing doc id by authUid
     final userDoc = await db.collection('users').doc(user.uid).get();
     if (userDoc.exists && (userDoc.data()?['role'] == 'marketing')) {
-      final name = (userDoc.data()?['name'] ?? 'Marketing').toString();
+      final q2 = await db
+          .collection('marketing')
+          .where('authUid', isEqualTo: user.uid)
+          .limit(1)
+          .get();
+
+      final marketingDocId = q2.docs.isNotEmpty ? q2.docs.first.id : user.uid;
+      final name = q2.docs.isNotEmpty
+          ? (q2.docs.first.data()['name'] ?? 'Marketing').toString()
+          : (userDoc.data()?['name'] ?? 'Marketing').toString();
+
+      try { await FlutterForegroundTask.stopService(); } catch (_) {}
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => MarketingHome(userId: user.uid, userName: name)),
+        MaterialPageRoute(
+          builder: (_) => MarketingHome(userId: marketingDocId, userName: name),
+        ),
       );
       return;
     }
@@ -111,6 +136,7 @@ class _HomeShellState extends State<HomeShell> {
             IconButton(
               icon: const Icon(Icons.logout),
               onPressed: () async {
+                try { await FlutterForegroundTask.stopService(); } catch (_) {}
                 await _auth.signOut();
                 if (context.mounted) {
                   Navigator.pushNamedAndRemoveUntil(context, '/', (_) => false);
@@ -128,8 +154,9 @@ class _HomeShellState extends State<HomeShell> {
         body: TabBarView(
           children: [
             AttendanceScreen(
-              driverId: driver!.id,
-              driverName: driverName,
+              userId: driver!.id,          // UPDATED
+              userName: driverName,        // UPDATED
+              collectionRoot: 'drivers',   // NEW
             ),
             TasksScreen(
               driverId: driver!.id,

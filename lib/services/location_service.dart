@@ -8,36 +8,33 @@ import 'location_task_handler.dart';
 
 class LocationService {
   final AttendanceService _att;
-  final String driverId;
+  final String userId;          // was driverId
+  final String collectionRoot;  // NEW
 
-  LocationService(this._att, this.driverId);
+  LocationService(this._att, this.userId, this.collectionRoot);
 
   Future<bool> ensurePermissions() async {
-    // GPS on?
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;
 
-    // Foreground → Background
     var perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
     if (perm == LocationPermission.whileInUse) {
-      // Try to escalate to "Allow all the time" (Android 10+)
       perm = await Geolocator.requestPermission();
     }
     return perm == LocationPermission.always ||
         perm == LocationPermission.whileInUse;
   }
 
-  // Call this from your check-in flow to explicitly push for background permission
   Future<bool> requestBgPermission() async {
     var perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
     if (perm == LocationPermission.whileInUse) {
-      perm = await Geolocator.requestPermission(); // escalate if possible
+      perm = await Geolocator.requestPermission();
     }
     return perm == LocationPermission.always;
   }
@@ -45,7 +42,6 @@ class LocationService {
   Future<void> _startForegroundAndroid() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
 
-    // v6.5+: init() returns void — do NOT await
     FlutterForegroundTask.init(
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'medrent_driver_location',
@@ -62,7 +58,7 @@ class LocationService {
       ),
       iosNotificationOptions: const IOSNotificationOptions(),
       foregroundTaskOptions: const ForegroundTaskOptions(
-        interval: 60000, // onRepeatEvent every 60s
+        interval: 60000,
         isOnceEvent: false,
         autoRunOnBoot: true,
         allowWakeLock: true,
@@ -70,15 +66,16 @@ class LocationService {
       ),
     );
 
-    // Pass data to the background isolate (read via getData(key: ...))
-    await FlutterForegroundTask.saveData(key: 'driverId', value: driverId);
+    /// ✅ Pass correct identity + role to background isolate
+    await FlutterForegroundTask.saveData(key: 'userId', value: userId);
+    await FlutterForegroundTask.saveData(key: 'collectionRoot', value: collectionRoot);
 
     final running = await FlutterForegroundTask.isRunningService;
     if (!running) {
       await FlutterForegroundTask.startService(
         notificationTitle: 'Tracking in progress',
         notificationText: 'Your trip is being recorded.',
-        callback: startCallback, // register handler entry
+        callback: startCallback,
       );
     } else {
       await FlutterForegroundTask.restartService();
@@ -97,34 +94,30 @@ class LocationService {
   Future<void> start() async {
     if (!await ensurePermissions()) return;
 
-    // Optional: capture one immediate point for a snappy first breadcrumb
     try {
       final cur = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
         timeLimit: const Duration(seconds: 8),
       );
       await _att.savePoint(
-        driverId,
+        userId,
         cur.latitude,
         cur.longitude,
         accuracy: cur.accuracy,
         speed: cur.speed,
         heading: cur.heading,
       );
-    } catch (_) {
-      // ignore — background handler will take over
-    }
+    } catch (_) {}
 
     await _startForegroundAndroid();
   }
 
-  /// Call on checkout
+  /// Call on check-out
   Future<void> stop() async {
     await _stopForegroundAndroid();
   }
 }
 
-/// Top-level entry point for the foreground task isolate
 @pragma('vm:entry-point')
 void startCallback() {
   FlutterForegroundTask.setTaskHandler(LocationTaskHandler());

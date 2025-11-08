@@ -1,21 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:permission_handler/permission_handler.dart'; // <-- ADDED
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/attendance_service.dart';
 import '../services/location_service.dart';
 
 class AttendanceScreen extends StatefulWidget {
-  final String driverId;
-  final String driverName;
-  const AttendanceScreen({super.key, required this.driverId, required this.driverName});
+  final String userId;          // may be authUid or docId (we’ll resolve)
+  final String userName;
+  final String collectionRoot;  // 'drivers' or 'marketing'
+
+  const AttendanceScreen({
+    super.key,
+    required this.userId,
+    required this.userName,
+    required this.collectionRoot,
+  });
 
   @override
   State<AttendanceScreen> createState() => _AttendanceScreenState();
 }
 
 class _AttendanceScreenState extends State<AttendanceScreen> {
-  final _att = AttendanceService();
+  late final AttendanceService _att =
+      AttendanceService(collectionRoot: widget.collectionRoot);
+
   LocationService? _loc;
+
+  // The id we actually use for Firestore paths (resolved below)
+  late String _effectiveUserId;
+
   Map<String, dynamic>? att;
   bool loading = true;
   bool saving = false;
@@ -25,20 +39,63 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void initState() {
     super.initState();
-    _loc = LocationService(_att, widget.driverId);
-    _load();
+    _effectiveUserId = widget.userId; // default to passed value
+    _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
+    _resolveMarketingIdIfNeeded().then((_) => _load());
+  }
+
+  /// If marketing, resolve the true docId by authUid. If it differs
+  /// from what we received, switch to it and restart the location service.
+  Future<void> _resolveMarketingIdIfNeeded() async {
+    if (widget.collectionRoot != 'marketing') return;
+
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+
+      final db = FirebaseFirestore.instance;
+      // First try marketing/{uid} if it exists and active
+      final byId = await db.collection('marketing').doc(uid).get();
+      String? resolved;
+      if (byId.exists && (byId.data()?['active'] == true)) {
+        resolved = byId.id;
+      } else {
+        // Else find by authUid
+        final q = await db
+            .collection('marketing')
+            .where('authUid', isEqualTo: uid)
+            .limit(1)
+            .get();
+        if (q.docs.isNotEmpty && (q.docs.first.data()['active'] == true)) {
+          resolved = q.docs.first.id;
+        }
+      }
+
+      if (resolved != null && resolved.isNotEmpty && resolved != _effectiveUserId) {
+        // Update effective id and restart location service with the correct id
+        _effectiveUserId = resolved;
+        // Recreate the LocationService with the resolved id
+        _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
+        // If we were already tracking, restart so the isolate gets the new id
+        if (tracking) {
+          try { await _loc?.stop(); } catch (_) {}
+          await _loc?.start();
+        }
+      }
+    } catch (_) {
+      // ignore resolution errors; we’ll keep using widget.userId
+    }
   }
 
   Future<void> _load() async {
     setState(() => loading = true);
-    final data = await _att.load(widget.driverId, _att.todayISO());
+    final data = await _att.load(_effectiveUserId, _att.todayISO());
     setState(() {
       att = data;
       loading = false;
       tracking = data != null && data['checkInMs'] != null && data['checkOutMs'] == null;
       note = (data != null ? (data['note'] ?? '') : '') as String;
     });
-    // If already checked-in, ensure background tracking is running.
     if (tracking) {
       await _loc?.start();
     }
@@ -48,43 +105,30 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool get canCheckOut => att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null;
 
   Future<void> checkIn() async {
-    if (!canCheckIn) return;
-    if (!mounted) return;
+    if (!canCheckIn || !mounted) return;
 
     final ok = await showConfirm(context, 'Confirm check-in now?');
     if (!ok) return;
 
     setState(() => saving = true);
     try {
-      // 1) Android 13+ notification permission (safe to call on all Android)
-      try {
-        await Permission.notification.request();
-      } catch (_) {
-        // ignore if platform doesn’t support it
-      }
+      try { await Permission.notification.request(); } catch (_) {}
 
-      // 2) Request background location (“Allow all the time”) if available
       try {
         final bgGranted = await _loc!.requestBgPermission();
         if (!bgGranted && mounted) {
           showSnack(context, "Please allow 'Location • Always' for continuous tracking.");
         }
-      } catch (_) {
-        // If requestBgPermission isn't supported on platform, continue
-      }
+      } catch (_) {}
 
-      // 3) Record check-in
       await _att.checkIn(
-        widget.driverId,
-        widget.driverName,
+        _effectiveUserId,
+        widget.userName,
         note: note,
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
 
-      // 4) Start unstoppable background tracking (foreground service)
       await _loc?.start();
-
-      // 5) Refresh UI
       await _load();
       setState(() => tracking = true);
       if (mounted) showSnack(context, 'Checked-in.');
@@ -101,10 +145,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     setState(() => saving = true);
     try {
       await _att.checkOut(
-        widget.driverId,
+        _effectiveUserId,
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
-      // Stop foreground tracking only on checkout
       await _loc?.stop();
       await _load();
       setState(() => tracking = false);
@@ -121,12 +164,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     setState(() => saving = true);
     try {
       await _att.markStatus(
-        widget.driverId,
+        _effectiveUserId,
         status,
         note: note,
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
-      // If not present, stop tracking
       if (status != 'present') {
         await _loc?.stop();
       }
@@ -139,8 +181,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   void dispose() {
-    // IMPORTANT: Do NOT stop tracking here — it should continue after leaving screen.
-    // _loc?.stop();  <-- removed on purpose
+    // Do not stop tracking here; should continue after leaving screen
     super.dispose();
   }
 
@@ -189,29 +230,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   child: Text(canCheckOut ? 'Check-out' : 'Checked-out'),
                 ),
                 const Spacer(),
-                OutlinedButton(
-                  onPressed: saving ? null : () => markStatus('leave'),
-                  child: const Text('Leave'),
-                ),
+                OutlinedButton(onPressed: saving ? null : () => markStatus('leave'), child: const Text('Leave')),
                 const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: saving ? null : () => markStatus('absent'),
-                  child: const Text('Absent'),
-                ),
+                OutlinedButton(onPressed: saving ? null : () => markStatus('absent'), child: const Text('Absent')),
                 const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: saving ? null : () => markStatus('half_day'),
-                  child: const Text('Half-day'),
-                ),
+                OutlinedButton(onPressed: saving ? null : () => markStatus('half_day'), child: const Text('Half-day')),
                 const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: saving ? null : () => markStatus('late'),
-                  child: const Text('Late'),
-                ),
+                OutlinedButton(onPressed: saving ? null : () => markStatus('late'), child: const Text('Late')),
               ]),
               const SizedBox(height: 6),
               const Text(
-                '• Tracking saves every ~90s or when moved ≥50m (Android background via service; iOS significant changes).',
+                '• Tracking saves every ~90s or when moved ≥50m.',
                 style: TextStyle(fontSize: 12, color: Colors.black54),
               ),
             ],
@@ -254,8 +283,7 @@ Future<bool> showConfirm(BuildContext ctx, String msg) async {
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
           ],
         ),
-      ) ??
-      false;
+      ) ?? false;
 }
 
 void showSnack(BuildContext ctx, String msg) {

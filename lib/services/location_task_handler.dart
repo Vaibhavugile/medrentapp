@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:isolate'; // <-- ADD THIS for SendPort
+import 'dart:isolate'; // for SendPort
 import 'dart:math' show sin, cos, asin, sqrt, pi;
 
 import 'package:geolocator/geolocator.dart';
@@ -10,7 +10,8 @@ import 'attendance_service.dart';
 
 class LocationTaskHandler extends TaskHandler {
   AttendanceService? _att;
-  String? _driverId;
+  String? _userId;                 // was _driverId
+  String _collectionRoot = 'drivers'; // default; will be overwritten by saved data
 
   Position? _lastSaved;
   int _lastSavedMs = 0;
@@ -25,19 +26,25 @@ class LocationTaskHandler extends TaskHandler {
       await Firebase.initializeApp();
     } catch (_) {}
 
-    // v6.5+: getData requires a key
-    _driverId = await FlutterForegroundTask.getData<String>(key: 'driverId');
-    _att = AttendanceService();
+    // Receive identity + role from LocationService.start()
+    _userId = await FlutterForegroundTask.getData<String>(key: 'userId');
+    final root = await FlutterForegroundTask.getData<String>(key: 'collectionRoot');
+    if (root != null && root.isNotEmpty) {
+      _collectionRoot = root;
+    }
+
+    // Recreate role-aware AttendanceService
+    _att = AttendanceService(collectionRoot: _collectionRoot);
 
     FlutterForegroundTask.updateService(
       notificationTitle: 'Tracking in progress',
-      notificationText: 'Recording your route…',
+      notificationText: 'Recording your route… ($_collectionRoot)',
     );
   }
 
   @override
   Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
-    if (_driverId == null || _att == null) return;
+    if (_userId == null || _att == null) return;
 
     // 1) Preconditions with gentle nudges
     final gpsOn = await Geolocator.isLocationServiceEnabled();
@@ -82,7 +89,7 @@ class LocationTaskHandler extends TaskHandler {
     final since = now - _lastSavedMs;
     if (_lastSaved == null || moved >= minMoveMeters || since >= minIntervalMs) {
       await _att!.savePoint(
-        _driverId!,
+        _userId!,                // role-agnostic id
         pos.latitude,
         pos.longitude,
         accuracy: pos.accuracy,
@@ -94,7 +101,7 @@ class LocationTaskHandler extends TaskHandler {
 
       FlutterForegroundTask.updateService(
         notificationText:
-            'Tracking… ${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
+            'Tracking… ${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)} ($_collectionRoot)',
       );
     }
   }
