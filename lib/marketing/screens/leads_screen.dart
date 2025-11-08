@@ -68,175 +68,152 @@ class _LeadsScreenState extends State<LeadsScreen> {
     }).toList();
   }
 
-  Future<void> _addLeadSheet() async {
-    // reset
-    _customerCtrl.clear();
-    _contactCtrl.clear();
-    _phoneCtrl.clear();
-    _emailCtrl.clear();
-    _addrCtrl.clear();
-    _sourceCtrl.clear();
-    _notesCtrl.clear();
-    _status = 'new';
-    _type = 'equipment';
+Future<void> _addLeadSheet() async {
+  _customerCtrl.clear();
+  _contactCtrl.clear();
+  _phoneCtrl.clear();
+  _emailCtrl.clear();
+  _addrCtrl.clear();
+  _sourceCtrl.clear();
+  _notesCtrl.clear();
+  _status = 'new';
+  _type = 'equipment';
 
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: 16, right: 16, top: 8,
-            bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text('New Lead', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 8),
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) {
+      final kb = MediaQuery.of(context).viewInsets.bottom;
+      return Padding(
+        padding: EdgeInsets.only(bottom: kb), // 🧠 keyboard padding
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.8,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          builder: (ctx, scrollController) {
+            return Material(
+              elevation: 6,
+              color: Theme.of(ctx).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: SafeArea(
+                top: false,
+                child: ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40, height: 4,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Text('New Lead', style: Theme.of(ctx).textTheme.titleLarge),
+                    const SizedBox(height: 8),
 
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _customerCtrl,
-                    decoration: const InputDecoration(labelText: 'Customer / Hospital *'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
+                    TextField(controller: _customerCtrl, decoration: const InputDecoration(labelText: 'Customer / Hospital *')),
+                    const SizedBox(height: 8),
+                    TextField(controller: _contactCtrl, decoration: const InputDecoration(labelText: 'Contact Person *')),
+                    const SizedBox(height: 8),
+                    TextField(controller: _phoneCtrl, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone *')),
+                    const SizedBox(height: 8),
+                    TextField(controller: _emailCtrl, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Email')),
+                    const SizedBox(height: 8),
+                    TextField(controller: _addrCtrl, decoration: const InputDecoration(labelText: 'Address / City')),
+                    const SizedBox(height: 8),
+                    TextField(controller: _sourceCtrl, decoration: const InputDecoration(labelText: 'Lead Source')),
+                    const SizedBox(height: 8),
+                    TextField(controller: _notesCtrl, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+                    const SizedBox(height: 8),
 
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _contactCtrl,
-                    decoration: const InputDecoration(labelText: 'Contact Person *'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
+                    Row(children: [
+                      Expanded(child: DropdownButtonFormField<String>(
+                        value: _status,
+                        decoration: const InputDecoration(labelText: 'Status'),
+                        items: const [
+                          DropdownMenuItem(value: 'new', child: Text('new')),
+                          DropdownMenuItem(value: 'contacted', child: Text('contacted')),
+                          DropdownMenuItem(value: 'qualified', child: Text('qualified')),
+                          DropdownMenuItem(value: 'req shared', child: Text('req shared')),
+                          DropdownMenuItem(value: 'converted', child: Text('converted')),
+                          DropdownMenuItem(value: 'lost', child: Text('lost')),
+                        ],
+                        onChanged: (v){ if (v!=null) setState(()=>_status = v); },
+                      )),
+                      const SizedBox(width: 12),
+                      Expanded(child: DropdownButtonFormField<String>(
+                        value: _type,
+                        decoration: const InputDecoration(labelText: 'Type'),
+                        items: const [
+                          DropdownMenuItem(value: 'equipment', child: Text('Equipment')),
+                          DropdownMenuItem(value: 'nursing', child: Text('Nursing')),
+                        ],
+                        onChanged: (v){ if (v!=null) setState(()=>_type = v); },
+                      )),
+                    ]),
+                    const SizedBox(height: 16),
 
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    decoration: const InputDecoration(labelText: 'Phone *'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
-
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _emailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
-
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _addrCtrl,
-                    decoration: const InputDecoration(labelText: 'Address / City'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
-
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _sourceCtrl,
-                    decoration: const InputDecoration(labelText: 'Lead Source'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
-
-                Row(children: [
-                  Expanded(child: TextField(
-                    controller: _notesCtrl,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Notes'),
-                  )),
-                ]),
-                const SizedBox(height: 8),
-
-                Row(children: [
-                  Expanded(child: DropdownButtonFormField<String>(
-                    value: _status,
-                    decoration: const InputDecoration(labelText: 'Status'),
-                    items: const [
-                      DropdownMenuItem(value: 'new', child: Text('new')),
-                      DropdownMenuItem(value: 'contacted', child: Text('contacted')),
-                      DropdownMenuItem(value: 'qualified', child: Text('qualified')),
-                      DropdownMenuItem(value: 'lost', child: Text('lost')),
-                      DropdownMenuItem(value: 'converted', child: Text('converted')),
-                      DropdownMenuItem(value: 'req shared', child: Text('req shared')),
-                    ],
-                    onChanged: (v){ if (v!=null) setState(()=>_status = v); },
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: DropdownButtonFormField<String>(
-                    value: _type,
-                    decoration: const InputDecoration(labelText: 'Type'),
-                    items: const [
-                      DropdownMenuItem(value: 'equipment', child: Text('Equipment')),
-                      DropdownMenuItem(value: 'nursing', child: Text('Nursing')),
-                    ],
-                    onChanged: (v){ if (v!=null) setState(()=>_type = v); },
-                  )),
-                ]),
-                const SizedBox(height: 12),
-
-                Row(children: [
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: () async {
-                      final cust = _customerCtrl.text.trim();
-                      final cont = _contactCtrl.text.trim();
-                      final ph   = _phoneCtrl.text.trim();
-                      if (cust.isEmpty || cont.isEmpty || ph.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Customer, Contact, Phone are required'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
-                      Navigator.pop(context);
-                      try {
-                        await _svc.createLeadDetailed(
-                          ownerId: widget.userId,
-                          ownerName: widget.userName,
-                          customerName: cust,
-                          contactPerson: cont,
-                          phone: ph,
-                          email: _emailCtrl.text.trim(),
-                          address: _addrCtrl.text.trim(),
-                          leadSource: _sourceCtrl.text.trim(),
-                          notes: _notesCtrl.text.trim(),
-                          status: _status,
-                          type: _type, // NEW
-                        );
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Lead created')),
-                          );
-                        }
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Failed to create lead: $e'), backgroundColor: Colors.red),
-                          );
-                        }
-                      }
-                    },
-                    child: const Text('Create'),
-                  ),
-                ]),
-              ],
-            ),
-          ),
+                    Row(children: [
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: () async {
+                          final cust = _customerCtrl.text.trim();
+                          final cont = _contactCtrl.text.trim();
+                          final ph   = _phoneCtrl.text.trim();
+                          if (cust.isEmpty || cont.isEmpty || ph.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Customer, Contact, Phone are required'),
+                                backgroundColor: Colors.red),
+                            );
+                            return;
+                          }
+                          Navigator.pop(context);
+                          try {
+                            await _svc.createLeadDetailed(
+                              ownerId: widget.userId,
+                              ownerName: widget.userName,
+                              customerName: cust,
+                              contactPerson: cont,
+                              phone: ph,
+                              email: _emailCtrl.text.trim(),
+                              address: _addrCtrl.text.trim(),
+                              leadSource: _sourceCtrl.text.trim(),
+                              notes: _notesCtrl.text.trim(),
+                              status: _status,
+                              type: _type,
+                            );
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Lead created')),
+                              );
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Failed to create lead: $e'),
+                                  backgroundColor: Colors.red),
+                              );
+                            }
+                          }
+                        },
+                        child: const Text('Create'),
+                      ),
+                    ]),
+                  ],
+                ),
+              ),
+            );
+          },
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
+}
 
   Future<void> _update(String id, String status) async {
     await _svc.updateStatus(
@@ -258,6 +235,7 @@ class _LeadsScreenState extends State<LeadsScreen> {
     final items = _filtered;
 
     return Scaffold(
+     resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: const Text('Leads'),
         actions: [

@@ -172,58 +172,95 @@ class _MarketingVisitsScreenState extends State<MarketingVisitsScreen> {
       reason: ctrl.text.trim().isEmpty ? 'No reason' : ctrl.text.trim(),
     );
   }
+Future<void> _addVisit() async {
+  final name = TextEditingController();
+  final phone = TextEditingController();
+  final addr = TextEditingController();
+  final note = TextEditingController();
 
-  Future<void> _addVisit() async {
-    final name = TextEditingController();
-    final phone = TextEditingController();
-    final addr = TextEditingController();
-    final note = TextEditingController();
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(left:16,right:16,top:8,bottom:16+MediaQuery.of(context).viewInsets.bottom),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('Add Visit', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height:8),
-            TextField(controller: name, decoration: const InputDecoration(labelText: 'Customer name')),
-            const SizedBox(height:8),
-            TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone')),
-            const SizedBox(height:8),
-            TextField(controller: addr, decoration: const InputDecoration(labelText: 'Address'), maxLines: 2),
-            const SizedBox(height:8),
-            TextField(controller: note, decoration: const InputDecoration(labelText: 'Purpose / Notes'), maxLines: 2),
-            const SizedBox(height:12),
-            Row(children: [
-              const Spacer(),
-              FilledButton(
-                onPressed: () async {
-                  if (name.text.trim().isEmpty || phone.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Name & phone required'), backgroundColor: Colors.red));
-                    return;
-                  }
-                  Navigator.pop(context);
-                  await _svc.createVisit(
-                    assignedToId: widget.userId,
-                    assignedToName: widget.userName,
-                    createdByUid: widget.userId,
-                    createdByName: widget.userName,
-                    customerName: name.text.trim(),
-                    phone: phone.text.trim(),
-                    address: addr.text.trim(),
-                    purpose: note.text.trim(),
-                  );
-                },
-                child: const Text('Create'),
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent, // let inner sheet have rounded corners
+    builder: (_) {
+      final kb = MediaQuery.of(context).viewInsets.bottom; // keyboard height
+      return Padding(
+        padding: EdgeInsets.only(bottom: kb), // 🧠 lift above keyboard
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.7,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+          builder: (ctx, scrollController) {
+            return Material(
+              elevation: 6,
+              color: Theme.of(ctx).colorScheme.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: SafeArea(
+                top: false,
+                child: ListView(
+                  controller: scrollController, // 👈 makes it scroll
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40, height: 4,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.black26,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Text('Add Visit', style: Theme.of(ctx).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+
+                    TextField(controller: name, decoration: const InputDecoration(labelText: 'Customer name *')),
+                    const SizedBox(height: 8),
+                    TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone *')),
+                    const SizedBox(height: 8),
+                    TextField(controller: addr, decoration: const InputDecoration(labelText: 'Address'), maxLines: 2),
+                    const SizedBox(height: 8),
+                    TextField(controller: note, decoration: const InputDecoration(labelText: 'Purpose / Notes'), maxLines: 2),
+                    const SizedBox(height: 16),
+
+                    Row(children: [
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: () async {
+                          if (name.text.trim().isEmpty || phone.text.trim().isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Name & phone required'), backgroundColor: Colors.red),
+                            );
+                            return;
+                          }
+                          Navigator.pop(context);
+                          await _svc.createVisit(
+                            assignedToId: widget.userId,
+                            assignedToName: widget.userName,
+                            createdByUid: widget.userId,
+                            createdByName: widget.userName,
+                            customerName: name.text.trim(),
+                            phone: phone.text.trim(),
+                            address: addr.text.trim(),
+                            purpose: note.text.trim(),
+                          );
+                        },
+                        child: const Text('Create'),
+                      ),
+                    ]),
+                  ],
+                ),
               ),
-            ]),
-          ]),
+            );
+          },
         ),
-      ),
-    );
-  }
+      );
+    },
+  );
+}
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -235,6 +272,7 @@ class _MarketingVisitsScreenState extends State<MarketingVisitsScreen> {
     final items = _filtered;
 
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(title: const Text('Visits')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addVisit, icon: const Icon(Icons.add), label: const Text('Add Visit')),
