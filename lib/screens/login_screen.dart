@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../marketing/marketing_home.dart'; // <- path from /screens
 import 'home_shell.dart';                  // driver shell
+import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -144,6 +145,21 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  TextButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => SignupScreen()),
+                          );
+                        },
+                        child: Text(
+                          "Create Account",
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                  const SizedBox(height: 12),
+
+
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton(
