@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/delivery_service.dart';
 import '../services/inventory_service.dart';
+import 'package:flutter/services.dart'; 
+
 
 class TasksScreen extends StatefulWidget {
   final String driverId;
@@ -195,217 +197,268 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   // ==== PICKUP: strict QR validation + error/success toasts ====
-  Future<void> _startPickup(Map<String, dynamic> delivery) async {
-    // Build expected assets list exactly like web does.
-    // Expected element shape: { assetDocId, assetId, itemName }
-    final expected = await _svc.loadExpectedAssets(delivery);
-
-    if (expected.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No assets to scan for this delivery.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    final expectedIds = expected
-        .map((e) => (e['assetId'] as String).trim())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-
-    final scanned = <String, bool>{}; // assetId -> true
-    bool confirming = false;
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => StatefulBuilder(
-        builder: (ctx, setSheetState) {
-          void toast(String msg, {Color? color}) {
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              SnackBar(content: Text(msg), backgroundColor: color),
-            );
-          }
-
-          String? _matchScan(String payload) {
-            final raw = payload.trim();
-            if (raw.isEmpty) return null;
-            if (expectedIds.contains(raw)) return raw;
-            for (final id in expectedIds) {
-              if (raw.contains(id)) return id;
-            }
-            return null;
-          }
-
-          void _onDetect(BarcodeCapture cap) {
-            for (final b in cap.barcodes) {
-              final v = (b.rawValue ?? '').trim();
-              if (v.isEmpty) continue;
-
-              final hit = _matchScan(v);
-              if (hit == null) {
-                toast('Not expected for this delivery: $v',
-                    color: Colors.red);
-                continue;
-              }
-              if (scanned[hit] == true) {
-                toast('Already scanned: $hit', color: Colors.black87);
-                continue;
-              }
-              scanned[hit] = true;
-              setSheetState(() {});
-              toast('Scanned: $hit', color: Colors.green);
-            }
-          }
-
-          Future<void> _confirm() async {
-            if (confirming) return;
-
-            // Require ALL expected assets scanned (strict)
-            final allScanned =
-                expected.every((e) => scanned[e['assetId']] == true);
-            if (!allScanned) {
-              toast('Scan all expected assets to start pickup.',
-                  color: Colors.orange);
-              return;
-            }
-
-            setSheetState(() => confirming = true);
-            try {
-              // 1) Checkout each scanned asset → out_for_rental
-              final toCheckout = expected
-                  .where((e) => scanned[e['assetId']] == true)
-                  .map((e) => e['assetDocId'] as String)
-                  .toList();
-
-              for (final assetDocId in toCheckout) {
-                await _inv.checkoutAsset(
-                  assetDocId,
-                  note: 'Checked out at pickup by driver',
-                );
-              }
-
-              // 2) THEN set stage → in_transit (delivery & order)
-              await _updateStage(
-                deliveryId: delivery['id'].toString(),
-                stage: 'in_transit',
-                confirm: false, // <-- QR flow skips confirm
-              );
-
-              if (mounted) {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                        'Pickup started • ${toCheckout.length} assets checked out'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-            } catch (e) {
-              // Network / Firestore / permission errors
-              toast('Failed to start pickup: $e', color: Colors.red);
-            } finally {
-              setSheetState(() => confirming = false);
-            }
-          }
-
-          final order =
-              (delivery['order'] ?? {}) as Map<String, dynamic>;
-          final total = expected.length;
-          final done = scanned.values.where((v) => v == true).length;
-
-          return SafeArea(
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 8,
-                bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Scan assets for pickup',
-                      style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 6),
-                  Text('$done of $total scanned',
-                      style: const TextStyle(color: Colors.black54)),
-                  const SizedBox(height: 8),
-
-                  // Camera
-                  SizedBox(
-                    height: 260,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: MobileScanner(onDetect: _onDetect),
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Expected',
-                        style: Theme.of(context).textTheme.titleMedium),
-                  ),
-                  const SizedBox(height: 6),
-
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 220),
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: expected.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1),
-                      itemBuilder: (_, i) {
-                        final e = expected[i];
-                        final id = e['assetId'] as String;
-                        final ok = scanned[id] == true;
-                        return ListTile(
-                          dense: true,
-                          leading: Icon(
-                              ok ? Icons.check_circle : Icons.qr_code_2),
-                          title: Text('${e['itemName']} • $id'),
-                          subtitle: Text(
-                              (order['orderNo'] ?? delivery['id'])
-                                  .toString()),
-                          trailing: Text(
-                            ok ? 'Scanned' : 'Pending',
-                            style: TextStyle(
-                              color: ok ? Colors.green : Colors.orange,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: confirming ? null : _confirm,
-                          child: Text(confirming
-                              ? 'Processing…'
-                              : 'Confirm pickup & start'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+  // ==== PICKUP: strict QR validation + in-modal toast bubble + haptics ====
+// ==== PICKUP: strict QR validation + debounced scans + in-modal toast + haptics ====
+// ==== PICKUP: strict QR validation + message UNDER scanner + debounced + haptics ====
+Future<void> _startPickup(Map<String, dynamic> delivery) async {
+  final expected = await _svc.loadExpectedAssets(delivery);
+  if (expected.isEmpty) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No assets to scan for this delivery.'),
+        backgroundColor: Colors.red,
       ),
     );
+    return;
   }
+
+  final expectedIds = expected
+      .map((e) => (e['assetId'] as String).trim())
+      .where((id) => id.isNotEmpty)
+      .toSet();
+
+  final scanned = <String, bool>{};
+  bool confirming = false;
+
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => StatefulBuilder(
+      builder: (ctx, setSheetState) {
+        // --- Message shown directly BELOW the scanner ---
+        String msgText = '';
+        Color msgColor = Colors.transparent;
+
+        void setMsg(String text, Color color, {bool hapticOk=false, bool hapticWarn=false, bool hapticErr=false}) {
+          msgText = text;
+          msgColor = color;
+          if (hapticOk) HapticFeedback.mediumImpact();
+          if (hapticWarn) HapticFeedback.selectionClick();
+          if (hapticErr) HapticFeedback.heavyImpact();
+          setSheetState(() {});
+        }
+
+        String? _matchScan(String payload) {
+          final raw = payload.trim();
+          if (raw.isEmpty) return null;
+          if (expectedIds.contains(raw)) return raw;
+          for (final id in expectedIds) {
+            if (raw.contains(id)) return id;
+          }
+          return null;
+        }
+
+        // Debounce + no-duplicates
+        DateTime _lastHandled = DateTime.fromMillisecondsSinceEpoch(0);
+        const int _cooldownMs = 900;
+        final ctrl = MobileScannerController(
+          detectionSpeed: DetectionSpeed.noDuplicates,
+          formats: const [BarcodeFormat.qrCode],
+        );
+
+        void _onDetect(BarcodeCapture cap) {
+          final now = DateTime.now();
+          if (now.difference(_lastHandled).inMilliseconds < _cooldownMs) return;
+
+          // only the first non-empty barcode per frame
+          String? raw;
+          for (final b in cap.barcodes) {
+            final v = (b.rawValue ?? '').trim();
+            if (v.isNotEmpty) { raw = v; break; }
+          }
+          if (raw == null) return;
+
+          _lastHandled = now;
+
+          final hit = _matchScan(raw);
+          if (hit == null) {
+            // ERROR shown under scanner
+            setMsg('QR not matched for this task', Colors.red, hapticErr: true);
+            return;
+          }
+
+          if (scanned[hit] == true) {
+            // WARNING under scanner
+            setMsg('Already scanned: $hit', Colors.orange, hapticWarn: true);
+            return;
+          }
+
+          scanned[hit] = true;
+          setSheetState(() {}); // refresh list
+          // SUCCESS under scanner
+          setMsg('Scanned: $hit', Colors.green, hapticOk: true);
+        }
+
+        Future<void> _confirm() async {
+          if (confirming) return;
+
+          final allScanned = expected.every((e) => scanned[e['assetId']] == true);
+          if (!allScanned) {
+            setMsg('Scan all expected assets to start pickup.', Colors.orange, hapticWarn: true);
+            return;
+          }
+
+          setSheetState(() => confirming = true);
+          try {
+            final toCheckout = expected
+                .where((e) => scanned[e['assetId']] == true)
+                .map((e) => e['assetDocId'] as String)
+                .toList();
+
+            for (final assetDocId in toCheckout) {
+              await _inv.checkoutAsset(
+                assetDocId,
+                note: 'Checked out at pickup by driver',
+              );
+            }
+
+            await _updateStage(
+              deliveryId: delivery['id'].toString(),
+              stage: 'in_transit',
+              confirm: false, // QR flow skips confirm
+            );
+
+            // Show success under scanner, then stop camera and close
+            setMsg('Pickup started • ${toCheckout.length} assets', Colors.green, hapticOk: true);
+
+            try { await ctrl.stop(); } catch (_) {}
+            await Future.delayed(const Duration(milliseconds: 450));
+
+            if (mounted) {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Pickup started • ${toCheckout.length} assets checked out'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          } catch (e) {
+            setMsg('Failed to start pickup', Colors.red, hapticErr: true);
+          } finally {
+            setSheetState(() => confirming = false);
+          }
+        }
+
+        final order = (delivery['order'] ?? {}) as Map<String, dynamic>;
+        final total = expected.length;
+        final done = scanned.values.where((v) => v == true).length;
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 8,
+              bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Scan assets for pickup',
+                    style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text('$done of $total scanned',
+                    style: const TextStyle(color: Colors.black54)),
+                const SizedBox(height: 8),
+
+                // Camera
+                SizedBox(
+                  height: 260,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: MobileScanner(
+                      controller: ctrl,
+                      onDetect: _onDetect,
+                    ),
+                  ),
+                ),
+
+                // >>> MESSAGE directly BELOW the scanner <<<
+                const SizedBox(height: 8),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 150),
+                  curve: Curves.easeOut,
+                  child: msgColor == Colors.transparent
+                      ? const SizedBox.shrink()
+                      : Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: msgColor.withOpacity(.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: msgColor.withOpacity(.6)),
+                          ),
+                          child: Text(
+                            msgText,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: msgColor,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                ),
+
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Expected',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ),
+                const SizedBox(height: 6),
+
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: expected.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, i) {
+                      final e = expected[i];
+                      final id = e['assetId'] as String;
+                      final ok = scanned[id] == true;
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(ok ? Icons.check_circle : Icons.qr_code_2),
+                        title: Text('${e['itemName']} • $id'),
+                        subtitle: Text((order['orderNo'] ?? delivery['id']).toString()),
+                        trailing: Text(
+                          ok ? 'Scanned' : 'Pending',
+                          style: TextStyle(
+                            color: ok ? Colors.green : Colors.orange,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: confirming ? null : _confirm,
+                        child: Text(confirming ? 'Processing…' : 'Confirm pickup & start'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+
+
 
   @override
   Widget build(BuildContext context) {

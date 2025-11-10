@@ -13,7 +13,26 @@ class MarketingVisitsScreen extends StatefulWidget {
 }
 
 class _MarketingVisitsScreenState extends State<MarketingVisitsScreen> {
-  static const stages = ['planned','started','reached','done','cancelled'];
+  
+  Future<bool> _confirmStageChange(BuildContext context, String actionLabel) async {
+    final msg = {
+      'start': 'Start this visit now?',
+      'reached': 'Mark this visit as reached?',
+      'complete': 'Mark this visit as completed?',
+    }[actionLabel] ?? 'Proceed with this action?';
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Confirm'),
+            content: Text(msg),
+            actions: [
+              TextButton(onPressed: ()=>Navigator.pop(context,false), child: const Text('No')),
+              FilledButton(onPressed: ()=>Navigator.pop(context,true), child: const Text('Yes')),
+            ],
+          ),
+        ) ?? false;
+  }
+static const stages = ['planned','started','reached','done','cancelled'];
 
   final _svc = VisitsService();
   StreamSubscription<List<Map<String, dynamic>>>? _sub;
@@ -67,7 +86,9 @@ class _MarketingVisitsScreenState extends State<MarketingVisitsScreen> {
   }
 
   Future<void> _onStart(Map<String,dynamic> v) async {
-    final pos = await _getPos(context);
+        final _ok = await _confirmStageChange(context, 'start');
+    if (!_ok) return;
+final pos = await _getPos(context);
     if (pos == null) return;
     await _svc.startVisit(
       visitId: v['id'],
@@ -80,7 +101,9 @@ class _MarketingVisitsScreenState extends State<MarketingVisitsScreen> {
   }
 
   Future<void> _onReached(Map<String,dynamic> v) async {
-    final pos = await _getPos(context);
+        final _ok = await _confirmStageChange(context, 'reached');
+    if (!_ok) return;
+final pos = await _getPos(context);
     if (pos == null) return;
     await _svc.markReached(
       visitId: v['id'],
@@ -93,63 +116,55 @@ class _MarketingVisitsScreenState extends State<MarketingVisitsScreen> {
     );
   }
 
-  Future<void> _onComplete(Map<String,dynamic> v) async {
-    final noteCtrl = TextEditingController();
-    bool createLead = true;
-    String leadType = 'equipment_rental';
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(left:16,right:16,top:8,bottom:16+MediaQuery.of(context).viewInsets.bottom),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('Complete visit', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height:8),
-            TextField(controller: noteCtrl, decoration: const InputDecoration(labelText: 'Outcome / Notes'), maxLines: 3),
-            const SizedBox(height:8),
-            SwitchListTile(
-              value: createLead, onChanged: (v)=>createLead=v, title: const Text('Create lead from this visit'),
-            ),
-            if (createLead) DropdownButtonFormField<String>(
-              value: leadType,
-              items: const [
-                DropdownMenuItem(value: 'equipment_rental', child: Text('Equipment rental')),
-                DropdownMenuItem(value: 'nursing_service', child: Text('Nursing service')),
-              ],
-              onChanged: (v){ if (v!=null) leadType=v; },
-              decoration: const InputDecoration(labelText: 'Lead type'),
-            ),
-            const SizedBox(height:12),
-            Row(children: [
-              const Spacer(),
-              FilledButton(
-                onPressed: () async {
-                  final note = noteCtrl.text.trim();
-                  if (note.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter outcome note'), backgroundColor: Colors.red));
-                    return;
-                  }
-                  Navigator.pop(context);
-                  await _svc.completeVisit(
-                    visitId: v['id'],
-                    byUid: widget.userId,
-                    byName: widget.userName,
-                    outcomeNote: note,
-                    createLead: createLead,
-                    leadType: leadType,
-                    leadNeed: note,
-                  );
-                },
-                child: const Text('Complete'),
-              ),
-            ]),
-          ]),
+  Future<void> _onComplete(Map<String, dynamic> v) async {
+  final noteCtrl = TextEditingController();
+
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Complete Visit'),
+      content: TextField(
+        controller: noteCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Outcome / Notes',
         ),
+        maxLines: 3,
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, true),
+          child: const Text('Complete'),
+        ),
+      ],
+    ),
+  ) ?? false;
+
+  if (!ok) return;
+
+  final note = noteCtrl.text.trim();
+  if (note.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter outcome note')),
     );
+    return;
   }
+
+  // ✅ No lead creation here
+  await _svc.completeVisit(
+    visitId: v['id'],
+    byUid: widget.userId,
+    byName: widget.userName,
+    outcomeNote: note,
+    createLead: false, // force no lead creation
+    leadType: '',
+    leadNeed: '',
+  );
+}
+
 
   Future<void> _onCancel(Map<String,dynamic> v) async {
     final ctrl = TextEditingController();
