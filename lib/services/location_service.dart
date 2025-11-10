@@ -13,6 +13,9 @@ class LocationService {
 
   LocationService(this._att, this.userId, this.collectionRoot);
 
+  bool _enabled = false;
+  bool get isTracking => _enabled;
+
   Future<bool> ensurePermissions() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return false;
@@ -21,6 +24,7 @@ class LocationService {
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
+    // Try to escalate if only while-in-use
     if (perm == LocationPermission.whileInUse) {
       perm = await Geolocator.requestPermission();
     }
@@ -66,7 +70,7 @@ class LocationService {
       ),
     );
 
-    /// ✅ Pass correct identity + role to background isolate
+    // Pass identity + role to background isolate
     await FlutterForegroundTask.saveData(key: 'userId', value: userId);
     await FlutterForegroundTask.saveData(key: 'collectionRoot', value: collectionRoot);
 
@@ -78,6 +82,7 @@ class LocationService {
         callback: startCallback,
       );
     } else {
+      // If it was already running, just refresh data
       await FlutterForegroundTask.restartService();
     }
   }
@@ -92,8 +97,12 @@ class LocationService {
 
   /// Call on check-in
   Future<void> start() async {
+    if (_enabled) return; // idempotent
     if (!await ensurePermissions()) return;
 
+    _enabled = true;
+
+    // One-shot save at start (for the check-in location)
     try {
       final cur = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.best,
@@ -107,13 +116,23 @@ class LocationService {
         speed: cur.speed,
         heading: cur.heading,
       );
-    } catch (_) {}
+    } catch (_) {
+      // ignore one-shot failures
+    }
 
     await _startForegroundAndroid();
   }
 
   /// Call on check-out
   Future<void> stop() async {
+    if (!_enabled) {
+      // Still ensure foreground is off just in case
+      await _stopForegroundAndroid();
+      return;
+    }
+    _enabled = false;
+
+    // IMPORTANT: do NOT fetch/save a location here.
     await _stopForegroundAndroid();
   }
 }

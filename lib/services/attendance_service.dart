@@ -53,18 +53,21 @@ class AttendanceService {
     }, SetOptions(merge: true));
   }
 
+  /// Checkout DOES NOT include any location—only timestamps/markers.
   Future<void> checkOut(String driverId, {String? uid}) async {
     final date = todayISO();
     final ref = attRef(driverId, date);
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // Update the attendance row
-    await ref.update({
+    // Merge-safe (won’t throw if doc missing). Keeps existing status/fields intact.
+    await ref.set({
+      'date': date,
+      'driverId': driverId,
       'checkOutMs': now,
       'checkOutServer': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedBy': uid ?? '',
-    });
+    }, SetOptions(merge: true));
 
     // Mark live docs ended
     await liveTodayDoc(driverId, date)
@@ -88,6 +91,7 @@ class AttendanceService {
       'note': note ?? '',
       'updatedAt': FieldValue.serverTimestamp(),
       'updatedBy': uid ?? '',
+      // If marking present, clear any stale check-in/out to let a fresh check-in happen.
       'checkInMs': status == 'present' ? FieldValue.delete() : null,
       'checkOutMs': status == 'present' ? FieldValue.delete() : null,
     }, SetOptions(merge: true));

@@ -10,14 +10,20 @@ import 'attendance_service.dart';
 
 class LocationTaskHandler extends TaskHandler {
   AttendanceService? _att;
-  String? _userId;                 // was _driverId
-  String _collectionRoot = 'drivers'; // default; will be overwritten by saved data
+  String? _userId;                     // was _driverId
+  String _collectionRoot = 'drivers';  // default; overwritten by saved data
 
   Position? _lastSaved;
   int _lastSavedMs = 0;
 
-  static const int minIntervalMs = 90000; // ~90s
-  static const double minMoveMeters = 50; // ≥50 m
+  // Throttles for saving points
+  static const int minIntervalMs = 90000;   // ~90s
+  static const double minMoveMeters = 50.0; // ≥50 m
+
+  // Shift guard: re-check every 5 minutes
+  int _lastShiftCheckMs = 0;
+  static const int shiftCheckIntervalMs = 5 * 60 * 1000;
+  bool _stillOnShift = true;
 
   @override
   Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
@@ -45,6 +51,15 @@ class LocationTaskHandler extends TaskHandler {
   @override
   Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
     if (_userId == null || _att == null) return;
+
+    // 0) Auto-stop if the shift has ended (checked out)
+    if (!await _ensureStillOnShift()) {
+      FlutterForegroundTask.updateService(
+        notificationText: 'Shift ended — stopping tracking',
+      );
+      await FlutterForegroundTask.stopService();
+      return;
+    }
 
     // 1) Preconditions with gentle nudges
     final gpsOn = await Geolocator.isLocationServiceEnabled();
@@ -108,7 +123,7 @@ class LocationTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
-    // Nothing to clean up; UI calls stop() on checkout
+    // No explicit cleanup needed; we never fetch/save on destroy.
   }
 
   @override
@@ -116,6 +131,29 @@ class LocationTaskHandler extends TaskHandler {
     if (id == 'stop') {
       await FlutterForegroundTask.stopService();
     }
+  }
+
+  // ---- helpers ----
+
+  /// Checks Firestore every [shiftCheckIntervalMs] to confirm the user
+  /// is still on shift (checked-in without a checkout). If checked out,
+  /// returns false so we can stop the foreground service.
+  Future<bool> _ensureStillOnShift() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastShiftCheckMs < shiftCheckIntervalMs) {
+      return _stillOnShift;
+    }
+    _lastShiftCheckMs = now;
+
+    try {
+      final data = await _att!.load(_userId!, _att!.todayISO());
+      final checkedIn = data != null && data['checkInMs'] != null;
+      final checkedOut = data != null && data['checkOutMs'] != null;
+      _stillOnShift = checkedIn && !checkedOut;
+    } catch (_) {
+      // If we fail to read, keep previous state to avoid flapping
+    }
+    return _stillOnShift;
   }
 }
 

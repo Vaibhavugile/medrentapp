@@ -36,12 +36,23 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   String note = '';
   bool tracking = false;
 
+  // persistent controller for the note field (prevents rebuild issues)
+  final TextEditingController _noteController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _effectiveUserId = widget.userId; // default to passed value
     _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
+    _noteController.addListener(() => note = _noteController.text);
     _resolveMarketingIdIfNeeded().then((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    // Do not stop tracking here; should continue after leaving screen
+    super.dispose();
   }
 
   /// If marketing, resolve the true docId by authUid. If it differs
@@ -95,6 +106,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       loading = false;
       tracking = data != null && data['checkInMs'] != null && data['checkOutMs'] == null;
       note = (data != null ? (data['note'] ?? '') : '') as String;
+      // keep controller in sync after load
+      _noteController.text = note;
     });
     if (tracking) {
       await _loc?.start();
@@ -128,6 +141,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
 
+      // Start tracking only after successful check-in
       await _loc?.start();
       await _load();
       setState(() => tracking = true);
@@ -144,11 +158,15 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     setState(() => saving = true);
     try {
+      // ✅ CRITICAL ORDER: stop tracking FIRST to avoid saving a point at checkout
+      await _loc?.stop();
+
+      // Then call checkout (no lat/lng should be sent by the service)
       await _att.checkOut(
         _effectiveUserId,
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
-      await _loc?.stop();
+
       await _load();
       setState(() => tracking = false);
       if (mounted) showSnack(context, 'Checked-out.');
@@ -179,69 +197,297 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  @override
-  void dispose() {
-    // Do not stop tracking here; should continue after leaving screen
-    super.dispose();
-  }
+  // --------- MOBILE-FRIENDLY UI BELOW ---------
 
   @override
   Widget build(BuildContext context) {
-    if (loading) return const Center(child: CircularProgressIndicator());
+    final theme = Theme.of(context);
     final date = _att.todayISO();
 
-    return Padding(
-      padding: const EdgeInsets.all(12.0),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    if (loading) {
+      return const Scaffold(
+        body: SafeArea(
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Attendance'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: _Chip(
+                label: tracking ? 'Tracking ON' : 'Tracking OFF',
+                color: tracking
+                    ? theme.colorScheme.primaryContainer
+                    : theme.colorScheme.surfaceVariant,
+                icon: tracking ? Icons.fmd_good : Icons.fmd_bad_outlined,
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
             children: [
-              Text('Date: $date', style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(child: InfoTile('Status', (att?['status'] ?? '—').toString())),
-                Expanded(child: InfoTile('Check-in', timeFromMs(att?['checkInMs']))),
-                Expanded(child: InfoTile('Check-out', timeFromMs(att?['checkOutMs']))),
-                Expanded(child: InfoTile('Tracking', tracking ? 'On' : 'Off')),
-              ]),
-              const SizedBox(height: 8),
-              Row(children: [
-                Expanded(
-                  child: TextField(
-                    decoration: const InputDecoration(labelText: 'Note'),
-                    minLines: 1,
-                    maxLines: 3,
-                    onChanged: (v) => note = v,
-                    controller: TextEditingController(text: note),
+              // Status card
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _Chip(label: 'Date: $date', icon: Icons.calendar_today),
+                          _Chip(
+                            label: 'Status: ${(att?['status'] ?? '—').toString()}',
+                            icon: Icons.verified_user_outlined,
+                          ),
+                          _Chip(
+                            label: 'Check-in: ${timeFromMs(att?['checkInMs'])}',
+                            icon: Icons.login,
+                          ),
+                          _Chip(
+                            label: 'Check-out: ${timeFromMs(att?['checkOutMs'])}',
+                            icon: Icons.logout,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _noteController,
+                        minLines: 2,
+                        maxLines: 5,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          labelText: 'Note for today',
+                          hintText: 'Add a short note…',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Tracking saves every ~90s or when moved ≥50m.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface.withOpacity(.6),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ]),
-              const SizedBox(height: 12),
-              Row(children: [
-                FilledButton(
-                  onPressed: (!saving && canCheckIn) ? checkIn : null,
-                  child: Text(canCheckIn ? 'Check-in' : 'Checked-in'),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Quick actions grid for larger phones (will wrap on small screens)
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _ActionTile(
+                    label: canCheckIn ? 'Check-in' : 'Checked-in',
+                    icon: Icons.login,
+                    onTap: (!saving && canCheckIn) ? checkIn : null,
+                    tone: _ActionTone.primary,
+                  ),
+                  _ActionTile(
+                    label: canCheckOut ? 'Check-out' : 'Checked-out',
+                    icon: Icons.logout,
+                    onTap: (!saving && canCheckOut) ? checkOut : null,
+                    tone: _ActionTone.secondary,
+                  ),
+                  _ActionTile(
+                    label: 'More',
+                    icon: Icons.more_horiz,
+                    onTap: saving ? null : _showMoreSheet,
+                    tone: _ActionTone.neutral,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+
+      // Sticky bottom call-to-action bar
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: SizedBox(
+            height: 56,
+            child: ElevatedButton.icon(
+              onPressed: saving
+                  ? null
+                  : canCheckOut
+                      ? checkOut
+                      : (canCheckIn ? checkIn : null),
+              icon: Icon(canCheckOut ? Icons.logout : Icons.login),
+              label: Text(
+                canCheckOut ? 'Check-out' : (canCheckIn ? 'Check-in' : 'Done for today'),
+                overflow: TextOverflow.ellipsis,
+              ),
+              style: ElevatedButton.styleFrom(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showMoreSheet() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: false,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SheetAction(
+                  icon: Icons.beach_access_outlined,
+                  label: 'Leave',
+                  onTap: () { Navigator.pop(ctx); markStatus('leave'); },
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                  onPressed: (!saving && canCheckOut) ? checkOut : null,
-                  child: Text(canCheckOut ? 'Check-out' : 'Checked-out'),
+                _SheetAction(
+                  icon: Icons.block_outlined,
+                  label: 'Absent',
+                  onTap: () { Navigator.pop(ctx); markStatus('absent'); },
                 ),
-                const Spacer(),
-                OutlinedButton(onPressed: saving ? null : () => markStatus('leave'), child: const Text('Leave')),
-                const SizedBox(width: 8),
-                OutlinedButton(onPressed: saving ? null : () => markStatus('absent'), child: const Text('Absent')),
-                const SizedBox(width: 8),
-                OutlinedButton(onPressed: saving ? null : () => markStatus('half_day'), child: const Text('Half-day')),
-                const SizedBox(width: 8),
-                OutlinedButton(onPressed: saving ? null : () => markStatus('late'), child: const Text('Late')),
-              ]),
-              const SizedBox(height: 6),
-              const Text(
-                '• Tracking saves every ~90s or when moved ≥50m.',
-                style: TextStyle(fontSize: 12, color: Colors.black54),
+                _SheetAction(
+                  icon: Icons.timelapse_outlined,
+                  label: 'Half-day',
+                  onTap: () { Navigator.pop(ctx); markStatus('half_day'); },
+                ),
+                _SheetAction(
+                  icon: Icons.schedule_outlined,
+                  label: 'Late',
+                  onTap: () { Navigator.pop(ctx); markStatus('late'); },
+                ),
+                const SizedBox(height: 6),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ---------- small UI helpers ----------
+
+class _Chip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final Color? color;
+  const _Chip({required this.label, this.icon, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color ?? theme.colorScheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+enum _ActionTone { primary, secondary, neutral }
+
+class _ActionTile extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback? onTap;
+  final _ActionTone tone;
+  const _ActionTile({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    required this.tone,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bg = switch (tone) {
+      _ActionTone.primary => theme.colorScheme.primaryContainer,
+      _ActionTone.secondary => theme.colorScheme.secondaryContainer,
+      _ => theme.colorScheme.surfaceVariant,
+    };
+    final fg = switch (tone) {
+      _ActionTone.primary => theme.colorScheme.onPrimaryContainer,
+      _ActionTone.secondary => theme.colorScheme.onSecondaryContainer,
+      _ => theme.colorScheme.onSurfaceVariant,
+    };
+
+    return Opacity(
+      opacity: onTap == null ? 0.5 : 1.0,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 120,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 24, color: fg),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: fg,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
@@ -251,17 +497,22 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 }
 
-class InfoTile extends StatelessWidget {
+class _SheetAction extends StatelessWidget {
+  final IconData icon;
   final String label;
-  final String value;
-  const InfoTile(this.label, this.value, {super.key});
+  final VoidCallback onTap;
+  const _SheetAction({required this.icon, required this.label, required this.onTap});
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      title: Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-      subtitle: Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+      onTap: onTap,
+      leading: Icon(icon, color: theme.colorScheme.primary),
+      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      minLeadingWidth: 24,
     );
   }
 }
