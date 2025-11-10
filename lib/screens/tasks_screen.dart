@@ -80,16 +80,52 @@ class _TasksScreenState extends State<TasksScreen> {
     return init;
   }
 
+  // === Stage update with optional confirmation ===
   Future<void> _updateStage({
     required String deliveryId,
     required String stage,
+    bool confirm = true, // NEW: default to confirming
   }) async {
+    if (confirm) {
+      final ok = await _confirmStage(stage);
+      if (!ok) return;
+    }
+
     await _svc.updateStage(
       deliveryId: deliveryId,
       newStage: stage,
       driverName: widget.driverName,
       byUid: _auth.currentUser?.uid,
     );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Stage changed to: $stage')),
+      );
+    }
+  }
+
+  // Small reusable confirm dialog
+  Future<bool> _confirmStage(String stage) async {
+    final pretty = stage.replaceAll('_', ' ');
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Confirm'),
+            content: Text('Change stage to "$pretty"?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('No'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   void _openDetails(Map<String, dynamic> d) {
@@ -257,6 +293,7 @@ class _TasksScreenState extends State<TasksScreen> {
               await _updateStage(
                 deliveryId: delivery['id'].toString(),
                 stage: 'in_transit',
+                confirm: false, // <-- QR flow skips confirm
               );
 
               if (mounted) {
