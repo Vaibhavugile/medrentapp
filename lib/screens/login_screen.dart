@@ -139,8 +139,10 @@ Widget build(BuildContext context) {
                           color: Colors.white.withOpacity(0.25),
                         ),
                       ),
-                      child: Icon(Icons.local_shipping_outlined,
-                          size: 42, color: Colors.white),
+                     child: Icon(Icons.health_and_safety, size: 42, color: Colors.white),
+
+
+
                     ),
                     const SizedBox(height: 16),
                     Text(
