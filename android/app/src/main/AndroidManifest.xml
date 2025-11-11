@@ -22,7 +22,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="MedRent Driver"
+        android:label="MedRent"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
 
