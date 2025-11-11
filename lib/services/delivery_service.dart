@@ -17,6 +17,53 @@ class DeliveryService {
     'rejected': 'Rejected',
   }[s] ?? s;
 
+  // -------------------- helpers (new) --------------------
+
+  /// Normalize various timestamp-like values to millisecondsSinceEpoch.
+  int? _toMillis(dynamic v) {
+    if (v == null) return null;
+    if (v is Timestamp) return v.millisecondsSinceEpoch;
+    if (v is int) return v;
+    if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch;
+    return null;
+    }
+
+  /// Extract the earliest expectedStartDate from delivery.items.
+  /// Supports: List<Map> or single Map; flexible key spellings.
+  dynamic _extractExpectedStartDateFromItems(dynamic items) {
+    int? bestMs;
+
+    void consider(dynamic val) {
+      final ms = _toMillis(val);
+      if (ms == null) return;
+      if (bestMs == null || ms < bestMs!) bestMs = ms;
+    }
+
+    if (items is List) {
+      for (final it in items) {
+        if (it is! Map) continue;
+        consider(it['expectedStartDate']);
+        consider(it['expectedstartdate']);
+        consider(it['expected_start_date']);
+        // sometimes nested under schedule/scheduling objects
+        final sched = it['schedule'] ?? it['scheduling'];
+        if (sched is Map) {
+          consider(sched['expectedStartDate']);
+          consider(sched['expected_start_date']);
+        }
+      }
+    } else if (items is Map) {
+      consider(items['expectedStartDate']);
+      consider(items['expectedstartdate']);
+      consider(items['expected_start_date']);
+    }
+
+    // Return milliseconds (int) so UI formatters can handle it easily.
+    return bestMs;
+  }
+
+  // -------------------- streams & mutations --------------------
+
   /// Stream deliveries for a driver + hydrate order + merge histories (same as web)
   Stream<List<Map<String, dynamic>>> streamDriverDeliveries(String driverId) {
     final q = _db.collection('deliveries').where('driverId', isEqualTo: driverId);
@@ -39,6 +86,13 @@ class DeliveryService {
         } else {
           data['order'] = data['order'] ?? {};
         }
+
+        // --- NEW: pull expectedStartDate from delivery.items and expose at root ---
+        final expectedStart = _extractExpectedStartDateFromItems(data['items']);
+        if (expectedStart != null) {
+          data['expectedStartDate'] = expectedStart; // int (ms since epoch)
+        }
+        // --- END NEW ---
 
         // merge histories (order.deliveryHistory + delivery.history)
         List<Map<String, dynamic>> canon(dynamic arr) {
