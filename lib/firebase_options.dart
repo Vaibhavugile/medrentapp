@@ -50,19 +50,19 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyBYt8ap0Bd7_jluWGUtlmcnsvyJqve_jGw',
-    appId: '1:670949336345:android:6160c163ffe0437ae35188',
-    messagingSenderId: '670949336345',
-    projectId: 'mdrent-38d1e',
-    storageBucket: 'mdrent-38d1e.firebasestorage.app',
+    apiKey: 'AIzaSyDohasuigtUvY_LbLBWOg6r0w40z7krCB0',
+    appId: '1:406243550899:android:59d8bf6d07b30fc8c7b2c6',
+    messagingSenderId: '406243550899',
+    projectId: 'medrent-5d771',
+    storageBucket: 'medrent-5d771.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCIhfUbSkYB5fa9tbIVRE1O6pWPCLTsDVc',
-    appId: '1:670949336345:ios:5235ed060a59a98fe35188',
-    messagingSenderId: '670949336345',
-    projectId: 'mdrent-38d1e',
-    storageBucket: 'mdrent-38d1e.firebasestorage.app',
+    apiKey: 'AIzaSyCZEpHOTMbPyhwTYWOa2eOHW2NoWIPoLuE',
+    appId: '1:406243550899:ios:72c2acd1ddee07b5c7b2c6',
+    messagingSenderId: '406243550899',
+    projectId: 'medrent-5d771',
+    storageBucket: 'medrent-5d771.firebasestorage.app',
     iosBundleId: 'com.example.driverApp',
   );
 }
