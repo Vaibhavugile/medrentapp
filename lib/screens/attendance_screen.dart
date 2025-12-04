@@ -1,3 +1,5 @@
+
+// attendance_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,9 +8,9 @@ import '../services/attendance_service.dart';
 import '../services/location_service.dart';
 
 class AttendanceScreen extends StatefulWidget {
-  final String userId;          // may be authUid or docId (we’ll resolve)
+  final String userId; // may be authUid or docId (we’ll resolve)
   final String userName;
-  final String collectionRoot;  // 'drivers' or 'marketing'
+  final String collectionRoot; // 'drivers' or 'marketing'
 
   const AttendanceScreen({
     super.key,
@@ -89,7 +91,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
         // If we were already tracking, restart so the isolate gets the new id
         if (tracking) {
-          try { await _loc?.stop(); } catch (_) {}
+          try {
+            await _loc?.stop();
+          } catch (_) {}
           await _loc?.start();
         }
       }
@@ -104,18 +108,72 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     setState(() {
       att = data;
       loading = false;
-      tracking = data != null && data['checkInMs'] != null && data['checkOutMs'] == null;
       note = (data != null ? (data['note'] ?? '') : '') as String;
-      // keep controller in sync after load
-      _noteController.text = note;
     });
+
+    // determine tracking based on open shift (shifts map) or fallback to top-level fields
+    final hasOpen = _hasOpenShift(att);
+    tracking = hasOpen || (att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null);
     if (tracking) {
       await _loc?.start();
+    } else {
+      // ensure location is stopped if not tracking
+      try {
+        await _loc?.stop();
+      } catch (_) {}
     }
+
+    // keep controller in sync after load
+    _noteController.text = note;
   }
 
-  bool get canCheckIn => att == null || att?['checkInMs'] == null;
-  bool get canCheckOut => att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null;
+  bool _hasOpenShift(Map<String, dynamic>? data) {
+    if (data == null) return false;
+    final raw = data['shifts'];
+    if (raw == null || raw is! Map<String, dynamic>) return false;
+    try {
+      final entries = Map<String, dynamic>.from(raw).entries;
+      for (final e in entries) {
+        final m = e.value as Map<String, dynamic>;
+        if (m['checkOutMs'] == null) return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  List<MapEntry<int, Map<String, dynamic>>> _getShiftsSorted(Map<String, dynamic>? data) {
+    if (data == null) return [];
+    final raw = data['shifts'];
+    if (raw == null || raw is! Map<String, dynamic>) return [];
+    final parsed = <MapEntry<int, Map<String, dynamic>>>[];
+    try {
+      final mp = Map<String, dynamic>.from(raw);
+      for (final e in mp.entries) {
+        final key = int.tryParse(e.key) ?? 0;
+        final value = Map<String, dynamic>.from(e.value as Map);
+        parsed.add(MapEntry(key, value));
+      }
+      parsed.sort((a, b) => a.key.compareTo(b.key));
+    } catch (_) {}
+    return parsed;
+  }
+
+  int? _latestOpenShiftNumber(Map<String, dynamic>? data) {
+    final list = _getShiftsSorted(data);
+    final open = list.where((e) => e.value['checkOutMs'] == null).toList();
+    if (open.isEmpty) return null;
+    open.sort((a, b) => b.key.compareTo(a.key));
+    return open.first.key;
+  }
+
+  bool get canCheckIn {
+    // allow check-in only if there is no open shift
+    return _latestOpenShiftNumber(att) == null;
+  }
+
+  bool get canCheckOut {
+    return _latestOpenShiftNumber(att) != null;
+  }
 
   Future<void> checkIn() async {
     if (!canCheckIn || !mounted) return;
@@ -125,7 +183,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     setState(() => saving = true);
     try {
-      try { await Permission.notification.request(); } catch (_) {}
+      try {
+        await Permission.notification.request();
+      } catch (_) {}
 
       try {
         final bgGranted = await _loc!.requestBgPermission();
@@ -151,7 +211,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
-  Future<void> checkOut() async {
+  Future<void> checkOut({int? shiftNumber}) async {
     if (!canCheckOut) return;
     final ok = await showConfirm(context, 'Confirm check-out now?');
     if (!ok) return;
@@ -164,6 +224,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       // Then call checkout (no lat/lng should be sent by the service)
       await _att.checkOut(
         _effectiveUserId,
+        shiftNumber: shiftNumber,
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
 
@@ -212,6 +273,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       );
     }
 
+    final shifts = _getShiftsSorted(att);
+    final latestOpen = _latestOpenShiftNumber(att);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Attendance'),
@@ -255,6 +319,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             icon: Icons.verified_user_outlined,
                           ),
                           _Chip(
+                            label: 'Shifts: ${shifts.length}',
+                            icon: Icons.schedule,
+                          ),
+                          _Chip(
                             label: 'Check-in: ${timeFromMs(att?['checkInMs'])}',
                             icon: Icons.login,
                           ),
@@ -293,6 +361,54 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
               const SizedBox(height: 24),
 
+              // List shifts
+              if (shifts.isEmpty)
+                Card(
+                  child: ListTile(
+                    title: const Text('No shifts yet today'),
+                    subtitle: const Text('Tap Check-in to start a shift.'),
+                  ),
+                )
+              else
+                ...shifts.map((e) {
+                  final number = e.key;
+                  final data = e.value;
+                  final checkInMs = data['checkInMs'] as int?;
+                  final checkOutMs = data['checkOutMs'] as int?;
+                  final status = (data['status'] ?? '').toString();
+                  final noteText = (data['note'] ?? '').toString();
+                  final checkInTime = checkInMs != null ? timeFromMs(checkInMs) : '—';
+                  final checkOutTime = checkOutMs != null ? timeFromMs(checkOutMs) : '—';
+                  final isOpen = checkOutMs == null;
+
+                  return Card(
+                    child: ListTile(
+                      leading: CircleAvatar(child: Text(number.toString())),
+                      title: Text('Shift $number — ${status.isNotEmpty ? status : '—'}'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('In: $checkInTime — Out: $checkOutTime'),
+                          if (noteText.isNotEmpty) Text('Note: $noteText'),
+                        ],
+                      ),
+                      trailing: isOpen
+                          ? PopupMenuButton<String>(
+                              onSelected: (v) {
+                                if (v == 'checkout') checkOut(shiftNumber: number);
+                              },
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(value: 'checkout', child: Text('Check out this shift')),
+                              ],
+                              icon: const Icon(Icons.more_vert),
+                            )
+                          : null,
+                    ),
+                  );
+                }).toList(),
+
+              const SizedBox(height: 24),
+
               // Quick actions grid for larger phones (will wrap on small screens)
               Wrap(
                 spacing: 12,
@@ -307,7 +423,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   _ActionTile(
                     label: canCheckOut ? 'Check-out' : 'Checked-out',
                     icon: Icons.logout,
-                    onTap: (!saving && canCheckOut) ? checkOut : null,
+                    onTap: (!saving && canCheckOut) ? () => checkOut(shiftNumber: latestOpen) : null,
                     tone: _ActionTone.secondary,
                   ),
                   _ActionTile(
@@ -334,7 +450,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               onPressed: saving
                   ? null
                   : canCheckOut
-                      ? checkOut
+                      ? () => checkOut(shiftNumber: latestOpen)
                       : (canCheckIn ? checkIn : null),
               icon: Icon(canCheckOut ? Icons.logout : Icons.login),
               label: Text(
@@ -352,6 +468,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       ),
     );
   }
+
+  int? get latestOpen => _latestOpenShiftNumber(att);
 
   void _showMoreSheet() {
     showModalBottomSheet(
@@ -371,22 +489,34 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 _SheetAction(
                   icon: Icons.beach_access_outlined,
                   label: 'Leave',
-                  onTap: () { Navigator.pop(ctx); markStatus('leave'); },
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    markStatus('leave');
+                  },
                 ),
                 _SheetAction(
                   icon: Icons.block_outlined,
                   label: 'Absent',
-                  onTap: () { Navigator.pop(ctx); markStatus('absent'); },
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    markStatus('absent');
+                  },
                 ),
                 _SheetAction(
                   icon: Icons.timelapse_outlined,
                   label: 'Half-day',
-                  onTap: () { Navigator.pop(ctx); markStatus('half_day'); },
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    markStatus('half_day');
+                  },
                 ),
                 _SheetAction(
                   icon: Icons.schedule_outlined,
                   label: 'Late',
-                  onTap: () { Navigator.pop(ctx); markStatus('late'); },
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    markStatus('late');
+                  },
                 ),
                 const SizedBox(height: 6),
               ],
@@ -534,7 +664,8 @@ Future<bool> showConfirm(BuildContext ctx, String msg) async {
             FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
           ],
         ),
-      ) ?? false;
+      ) ??
+      false;
 }
 
 void showSnack(BuildContext ctx, String msg) {
