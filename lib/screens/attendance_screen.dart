@@ -1,4 +1,3 @@
-
 // attendance_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -37,6 +36,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool saving = false;
   String note = '';
   bool tracking = false;
+
+  // Cross-date open shift info (if a shift started on previous date and is still open)
+  String? _openShiftDate; // 'yyyy-MM-dd' or null
+  int? _openShiftNumberAcrossDates;
 
   // persistent controller for the note field (prevents rebuild issues)
   final TextEditingController _noteController = TextEditingController();
@@ -104,16 +107,37 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> _load() async {
     setState(() => loading = true);
+    // Load today's attendance doc into `att`
     final data = await _att.load(_effectiveUserId, _att.todayISO());
+    // Also find any open shift across recent dates
+    Map<String, dynamic>? found;
+    try {
+      // search a few days back (service default is fine); adjust if needed
+      final foundMap = await _att.findLatestOpenShiftAcrossDates(_effectiveUserId, maxDaysBack: 3, maxAgeHours: 72);
+      found = foundMap;
+    } catch (_) {
+      found = null;
+    }
+
     setState(() {
       att = data;
       loading = false;
       note = (data != null ? (data['note'] ?? '') : '') as String;
+      if (found != null) {
+        _openShiftDate = (found['date'] as String?) ?? null;
+        _openShiftNumberAcrossDates = (found['shiftNumber'] as int?) ?? null;
+      } else {
+        _openShiftDate = null;
+        _openShiftNumberAcrossDates = null;
+      }
     });
 
     // determine tracking based on open shift (shifts map) or fallback to top-level fields
-    final hasOpen = _hasOpenShift(att);
-    tracking = hasOpen || (att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null);
+    final hasOpenToday = _hasOpenShift(att);
+    final topLevelOpen = att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null;
+    final crossDateOpen = _openShiftNumberAcrossDates != null;
+
+    tracking = hasOpenToday || topLevelOpen || crossDateOpen;
     if (tracking) {
       await _loc?.start();
     } else {
@@ -167,12 +191,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   bool get canCheckIn {
-    // allow check-in only if there is no open shift
-    return _latestOpenShiftNumber(att) == null;
+    // allow check-in only if there is no open shift (today or across dates)
+    return _latestOpenShiftNumber(att) == null && _openShiftNumberAcrossDates == null;
   }
 
   bool get canCheckOut {
-    return _latestOpenShiftNumber(att) != null;
+    // allow checkout if there is an open shift today OR an open shift found across dates
+    return _latestOpenShiftNumber(att) != null || _openShiftNumberAcrossDates != null;
   }
 
   Future<void> checkIn() async {
@@ -221,12 +246,22 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       // ✅ CRITICAL ORDER: stop tracking FIRST to avoid saving a point at checkout
       await _loc?.stop();
 
-      // Then call checkout (no lat/lng should be sent by the service)
-      await _att.checkOut(
-        _effectiveUserId,
-        shiftNumber: shiftNumber,
-        uid: FirebaseAuth.instance.currentUser?.uid,
-      );
+      // Then call checkout. The service will find and checkout across dates if needed.
+      // If we know a specific cross-date shiftNumber, pass it; otherwise let service find it.
+      final useShift = shiftNumber ?? _openShiftNumberAcrossDates;
+      if (useShift != null) {
+        // Passing shiftNumber will attempt to checkout that specific shift; service will search across dates if needed.
+        await _att.checkOut(
+          _effectiveUserId,
+          shiftNumber: useShift,
+          uid: FirebaseAuth.instance.currentUser?.uid,
+        );
+      } else {
+        await _att.checkOut(
+          _effectiveUserId,
+          uid: FirebaseAuth.instance.currentUser?.uid,
+        );
+      }
 
       await _load();
       setState(() => tracking = false);
@@ -359,7 +394,43 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 ),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+
+              // If we found an open shift across dates (started previous day), show a prominent card
+              if (_openShiftDate != null && _openShiftDate != date)
+                Card(
+                  color: theme.colorScheme.surfaceVariant,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Open shift from ${_openShiftDate}',
+                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Shift #${_openShiftNumberAcrossDates ?? '—'} — still open. Tap Checkout to close this shift.',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        ElevatedButton(
+                          onPressed: saving ? null : () => checkOut(shiftNumber: _openShiftNumberAcrossDates),
+                          child: const Text('Checkout'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              const SizedBox(height: 12),
 
               // List shifts
               if (shifts.isEmpty)
@@ -469,7 +540,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  int? get latestOpen => _latestOpenShiftNumber(att);
+  int? get latestOpen {
+    // prefer today's open shift number; if none, fallback to cross-date open shift number
+    final todayOpen = _latestOpenShiftNumber(att);
+    if (todayOpen != null) return todayOpen;
+    return _openShiftNumberAcrossDates;
+  }
 
   void _showMoreSheet() {
     showModalBottomSheet(

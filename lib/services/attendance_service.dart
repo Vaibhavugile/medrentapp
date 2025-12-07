@@ -1,4 +1,3 @@
-
 // attendance_service.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -30,7 +29,7 @@ class AttendanceService {
     return snap.data();
   }
 
-  /// Helper: read today's attendance doc and return raw shifts map (keys as strings)
+  /// Helper: read attendance doc for a date and return raw shifts map (keys as strings)
   Future<Map<String, dynamic>> _rawShifts(String driverId, String date) async {
     final snap = await attRef(driverId, date).get();
     if (!snap.exists) return {};
@@ -42,18 +41,88 @@ class AttendanceService {
   }
 
   /// Determine latest open shift number for today (or null)
+  /// NOTE: this now searches across recent dates (today + previous days) to account for
+  /// night-shift checkins that start on previous day and end after midnight.
   Future<int?> getLatestOpenShiftNumber(String driverId) async {
-    final date = todayISO();
-    final raw = await _rawShifts(driverId, date);
+    final result = await findLatestOpenShiftAcrossDates(driverId);
+    if (result == null) return null;
+    return result['shiftNumber'] as int?;
+  }
+
+  /// Helper: check a single day's rawShifts map and return latest open shift key (string) or null.
+  String? _latestOpenShiftKeyFromRaw(Map<String, dynamic> raw) {
     if (raw.isEmpty) return null;
-    // find entries where checkOutMs == null
     final open = raw.entries.where((e) {
       final m = e.value as Map<String, dynamic>;
       return m['checkOutMs'] == null;
     }).toList();
     if (open.isEmpty) return null;
     open.sort((a, b) => int.parse(b.key).compareTo(int.parse(a.key)));
-    return int.parse(open.first.key);
+    return open.first.key;
+  }
+
+  /// Search recent dates (today, yesterday, ...) up to [maxDaysBack] for an open shift.
+  /// Returns a map with keys: 'date' (String) and 'shiftNumber' (int) or null if none found.
+  /// Also ensures the found checkin is not in the future and is within a reasonable age window.
+  Future<Map<String, dynamic>?> findLatestOpenShiftAcrossDates(
+    String driverId, {
+    int maxDaysBack = 2, // search today + previous (maxDaysBack - 1) days
+    int maxAgeHours = 48, // ignore checkins older than this
+  }) async {
+    final now = DateTime.now().toUtc();
+    final maxAge = Duration(hours: maxAgeHours);
+
+    for (int offset = 0; offset < maxDaysBack; offset++) {
+      final date = DateFormat('yyyy-MM-dd').format(DateTime.now().toUtc().subtract(Duration(days: offset)));
+      final raw = await _rawShifts(driverId, date);
+      if (raw.isEmpty) continue;
+      final key = _latestOpenShiftKeyFromRaw(raw);
+      if (key == null) continue;
+
+      final shift = raw[key];
+      if (shift == null || shift is! Map<String, dynamic>) continue;
+      final checkInMs = shift['checkInMs'];
+      if (checkInMs == null) {
+        // If no checkInMs stored, still consider it but ensure checkInServer if present is valid
+        final checkInServer = shift['checkInServer'];
+        DateTime? checkinDt;
+        if (checkInServer is Timestamp) checkinDt = checkInServer.toDate().toUtc();
+        else if (checkInServer is DateTime) checkinDt = (checkInServer as DateTime).toUtc();
+
+        if (checkinDt == null) continue;
+        if (checkinDt.isAfter(now)) continue;
+        if (now.difference(checkinDt) > maxAge) continue;
+
+        return {
+          'date': date,
+          'shiftNumber': int.parse(key),
+        };
+      } else {
+        DateTime checkinDt;
+        if (checkInMs is int) {
+          checkinDt = DateTime.fromMillisecondsSinceEpoch(checkInMs).toUtc();
+        } else if (checkInMs is String) {
+          // stored as string milliseconds
+          final ms = int.tryParse(checkInMs) ?? 0;
+          checkinDt = DateTime.fromMillisecondsSinceEpoch(ms).toUtc();
+        } else {
+          // fallback to server timestamp if available
+          final checkInServer = shift['checkInServer'];
+          if (checkInServer is Timestamp) checkinDt = checkInServer.toDate().toUtc();
+          else if (checkInServer is DateTime) checkinDt = (checkInServer as DateTime).toUtc();
+          else continue;
+        }
+
+        if (checkinDt.isAfter(now)) continue; // ignore future checkins
+        if (now.difference(checkinDt) > maxAge) continue; // too old
+        return {
+          'date': date,
+          'shiftNumber': int.parse(key),
+        };
+      }
+    }
+
+    return null;
   }
 
   /// Transactional check-in. Creates shifts.<n> map for today.
@@ -110,32 +179,28 @@ class AttendanceService {
 
   /// Check out the latest open shift or specified shiftNumber.
   /// Also updates top-level checkOut fields for backward compatibility.
+  ///
+  /// IMPORTANT: If no open shift is found in *today's* doc, this method will
+  /// search previous date documents (up to 2 days back by default) and attempt
+  /// to checkout the latest open shift it finds.
   Future<void> checkOut(String driverId, {int? shiftNumber, String? uid}) async {
-    final date = todayISO();
-    final ref = attRef(driverId, date);
+    // First try today's document
+    final dateToday = todayISO();
+    final refToday = attRef(driverId, dateToday);
 
+    // Try transaction on today's doc; if it fails to find an open shift and
+    // shiftNumber is null, we'll search previous dates and checkout there.
     await _db.runTransaction((tx) async {
-      final snap = await tx.get(ref);
+      final snap = await tx.get(refToday);
       if (!snap.exists) {
-        throw Exception('No attendance doc for today');
+        // No today's doc -> we will search across dates below (outside this tx)
+        return;
       }
-      final docData = Map<String, dynamic>.from(snap.data()!);
+      final docData = Map<String, dynamic>.from(snap.data() ?? {});
       final rawShifts = Map<String, dynamic>.from(docData['shifts'] ?? {});
 
       if (rawShifts.isEmpty) {
-        // nothing to checkout - still write top-level checkout for compatibility
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        tx.set(ref, {
-          'date': date,
-          'driverId': driverId,
-          'checkOutMs': nowMs,
-          'checkOutServer': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          'updatedBy': uid ?? '',
-        }, SetOptions(merge: true));
-        // end live docs
-        tx.set(liveTodayDoc(driverId, date), {'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
-        tx.set(driverLiveDoc(driverId), {'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+        // nothing to checkout in today's doc -> return and let outer logic search prev dates
         return;
       }
 
@@ -143,7 +208,8 @@ class AttendanceService {
       if (shiftNumber != null) {
         targetShiftKey = shiftNumber.toString();
         if (!rawShifts.containsKey(targetShiftKey)) {
-          throw Exception('Shift $shiftNumber not found');
+          // specified shift not found in today's doc -> let outer logic handle searching other dates
+          return;
         }
       } else {
         // pick latest open shift (checkOutMs == null)
@@ -152,7 +218,8 @@ class AttendanceService {
           return m['checkOutMs'] == null;
         }).toList();
         if (open.isEmpty) {
-          throw Exception('No open shift found to checkout.');
+          // no open shift in today's doc -> allow outer logic to search previous dates
+          return;
         }
         open.sort((a, b) => int.parse(b.key).compareTo(int.parse(a.key)));
         targetShiftKey = open.first.key;
@@ -171,9 +238,112 @@ class AttendanceService {
         'updatedBy': uid ?? '',
       };
 
-      tx.update(ref, update);
+      tx.update(refToday, update);
 
       // Mark live docs ended
+      tx.set(liveTodayDoc(driverId, dateToday), {'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+      tx.set(driverLiveDoc(driverId), {'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+    });
+
+    // After the above transaction, verify whether we actually checked out something in today's doc.
+    // If not, and a specific shiftNumber was not provided (or provided but not in today's doc),
+    // search previous dates for an open shift and checkout there.
+    // We perform this as a separate operation (transaction inside checkoutOnDate).
+    try {
+      // Check whether today's doc now has any open shifts remaining (or contains the requested shift)
+      final todaySnap = await refToday.get();
+      bool didCheckoutInToday = false;
+      if (todaySnap.exists) {
+        final docData = Map<String, dynamic>.from(todaySnap.data() ?? {});
+        final rawShifts = Map<String, dynamic>.from(docData['shifts'] ?? {});
+        if (rawShifts.isNotEmpty) {
+          // if shiftNumber specified, check that it now has checkout set
+          if (shiftNumber != null) {
+            final key = shiftNumber.toString();
+            final shiftMap = rawShifts[key];
+            if (shiftMap is Map<String, dynamic> && shiftMap['checkOutMs'] != null) {
+              didCheckoutInToday = true;
+            }
+          } else {
+            // if any open shifts remain
+            final open = rawShifts.entries.where((e) {
+              final m = Map<String, dynamic>.from(e.value as Map);
+              return m['checkOutMs'] == null;
+            }).toList();
+            if (open.isEmpty) {
+              // no open shifts -> likely we checked out successfully
+              didCheckoutInToday = true;
+            } else {
+              // there are still open shifts -> we didn't checkout them in today's doc
+              didCheckoutInToday = false;
+            }
+          }
+        } else {
+          // no shifts -> nothing to do; treat as checked out
+          didCheckoutInToday = true;
+        }
+      } else {
+        // today's doc missing -> we'll search previous days
+        didCheckoutInToday = false;
+      }
+
+      if (!didCheckoutInToday) {
+        // find latest open shift across recent dates (today already checked, but search will include it; it's okay)
+        final found = await findLatestOpenShiftAcrossDates(driverId, maxDaysBack: 3, maxAgeHours: 72);
+        if (found != null) {
+          final targetDate = found['date'] as String;
+          final targetShift = found['shiftNumber'] as int;
+          // perform checkout on that specific date document (transactional)
+          await checkoutOnDate(driverId, targetDate, shiftNumber: targetShift, uid: uid);
+        } else {
+          // nothing found across recent dates — throw to maintain previous behavior
+          throw Exception('No open shift found to checkout.');
+        }
+      }
+    } catch (e) {
+      // Bubble up error for caller to handle
+      rethrow;
+    }
+  }
+
+  /// Transaction-safe checkout on a specific date's attendance doc.
+  /// Writes `checkout` fields only if the targeted shift's checkout is null.
+  Future<void> checkoutOnDate(String driverId, String date, {required int shiftNumber, String? uid}) async {
+    final ref = attRef(driverId, date);
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) {
+        throw Exception('Attendance doc for $date not found');
+      }
+      final docData = Map<String, dynamic>.from(snap.data() ?? {});
+      final rawShifts = Map<String, dynamic>.from(docData['shifts'] ?? {});
+
+      final key = shiftNumber.toString();
+      if (!rawShifts.containsKey(key)) {
+        throw Exception('Shift $shiftNumber not found on $date');
+      }
+
+      final shiftMap = rawShifts[key] as Map<String, dynamic>;
+      if (shiftMap['checkOutMs'] != null) {
+        // already checked out
+        return;
+      }
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final update = {
+        'shifts.$key.checkOutMs': nowMs,
+        'shifts.$key.checkOutServer': FieldValue.serverTimestamp(),
+        'shifts.$key.status': 'completed',
+        // Also update top-level quick pointers (use the date's doc for compatibility)
+        'checkOutMs': nowMs,
+        'checkOutServer': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'updatedBy': uid ?? '',
+      };
+
+      tx.update(ref, update);
+
+      // Mark live docs ended for that date
       tx.set(liveTodayDoc(driverId, date), {'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
       tx.set(driverLiveDoc(driverId), {'endedAtServer': FieldValue.serverTimestamp()}, SetOptions(merge: true));
     });
@@ -209,36 +379,35 @@ class AttendanceService {
   /// Save a location point. Writes into a locations subcollection (detailed points),
   /// updates liveToday and driverLive quick docs, and appends into the open shift's
   /// shifts.<n>.locations array for a small summary (arrayUnion).
- Future<void> savePoint(
-  String driverId,
-  double lat,
-  double lng, {
-  double? accuracy,
-  double? speed,
-  double? heading,
-}) async {
-  final date = todayISO();
-  final now = DateTime.now().millisecondsSinceEpoch;
-  final payload = {
-    'lat': lat,
-    'lng': lng,
-    'accuracy': accuracy,
-    'speed': speed,
-    'heading': heading,
-    'capturedAtMs': now,
-    'capturedAtServer': FieldValue.serverTimestamp(),
-    'driverId': driverId,
-    'date': date,
-  };
+  Future<void> savePoint(
+    String driverId,
+    double lat,
+    double lng, {
+    double? accuracy,
+    double? speed,
+    double? heading,
+  }) async {
+    final date = todayISO();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final payload = {
+      'lat': lat,
+      'lng': lng,
+      'accuracy': accuracy,
+      'speed': speed,
+      'heading': heading,
+      'capturedAtMs': now,
+      'capturedAtServer': FieldValue.serverTimestamp(),
+      'driverId': driverId,
+      'date': date,
+    };
 
-  // write detailed point in subcollection (unchanged)
-  await locsCol(driverId, date).add(payload);
+    // write detailed point in subcollection (unchanged)
+    await locsCol(driverId, date).add(payload);
 
-  // update live docs (unchanged)
-  await liveTodayDoc(driverId, date).set(payload, SetOptions(merge: true));
-  await driverLiveDoc(driverId).set(payload, SetOptions(merge: true));
+    // update live docs (unchanged)
+    await liveTodayDoc(driverId, date).set(payload, SetOptions(merge: true));
+    await driverLiveDoc(driverId).set(payload, SetOptions(merge: true));
 
-  // NO longer appending any lightweight point into shifts.<n>.locations
-}
-
+    // NO longer appending any lightweight point into shifts.<n>.locations
+  }
 }

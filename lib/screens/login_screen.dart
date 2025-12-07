@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_messaging/firebase_messaging.dart'; // 👈 added
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // <-- secure storage
 
-import '../marketing/marketing_home.dart'; // <- path from /screens
-import 'home_shell.dart';                  // driver shell
+import '../marketing/marketing_home.dart';
+import 'home_shell.dart';
 import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,14 +19,41 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _pass = TextEditingController();
+  final _secureStorage = const FlutterSecureStorage();
+
   bool _loading = false;
   bool _obscure = true;
+  bool _remember = true; // default checked
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCredentials();
+  }
 
   @override
   void dispose() {
     _email.dispose();
     _pass.dispose();
     super.dispose();
+  }
+
+  // load saved email/password if "remember me"
+  Future<void> _loadSavedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final remember = prefs.getBool('rememberMe') ?? true;
+      setState(() => _remember = remember);
+
+      if (_remember) {
+        final savedEmail = prefs.getString('savedEmail') ?? '';
+        final savedPass = await _secureStorage.read(key: 'savedPassword') ?? '';
+        if (savedEmail.isNotEmpty) _email.text = savedEmail;
+        if (savedPass.isNotEmpty) _pass.text = savedPass;
+      }
+    } catch (e) {
+      // ignore load errors; don't block UI
+    }
   }
 
   // === NEW: save this device's FCM token to drivers/{uid} ===
@@ -40,8 +69,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (token == null || token.isEmpty) return;
 
       await FirebaseFirestore.instance.collection('drivers').doc(driverId).set({
-        'lastFcmToken': token,                        // last logged-in device
-        'fcmTokens': FieldValue.arrayUnion([token]),  // keep list of devices (optional)
+        'lastFcmToken': token,
+        'fcmTokens': FieldValue.arrayUnion([token]),
         'lastActiveAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -114,6 +143,22 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Future<void> _saveCredentials(bool remember, String email, String pass) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('rememberMe', remember);
+      if (remember) {
+        await prefs.setString('savedEmail', email);
+        await _secureStorage.write(key: 'savedPassword', value: pass);
+      } else {
+        await prefs.remove('savedEmail');
+        await _secureStorage.delete(key: 'savedPassword');
+      }
+    } catch (e) {
+      // ignore persistence errors
+    }
+  }
+
   Future<void> _login() async {
     if (_loading) return;
     final email = _email.text.trim();
@@ -127,6 +172,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pass);
+
+      // save or clear credentials based on remember flag
+      await _saveCredentials(_remember, email, pass);
+
       await _routeAfterLogin(context);
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -145,7 +194,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      // nice gradient backdrop
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -250,6 +298,32 @@ class _LoginScreenState extends State<LoginScreen> {
                                   },
                                   child: const Text('Forgot password?'),
                                 ),
+                              ),
+
+                              // REMEMBER ME checkbox
+                              CheckboxListTile(
+                                contentPadding: EdgeInsets.zero,
+                                value: _remember,
+                                onChanged: (v) async {
+                                  final newVal = v ?? false;
+                                  setState(() => _remember = newVal);
+                                  final prefs = await SharedPreferences.getInstance();
+                                  await prefs.setBool('rememberMe', newVal);
+                                  if (!newVal) {
+                                    await prefs.remove('savedEmail');
+                                    await _secureStorage.delete(key: 'savedPassword');
+                                  } else {
+                                    // if enabling remember and fields filled, save them
+                                    final email = _email.text.trim();
+                                    final pass = _pass.text.trim();
+                                    if (email.isNotEmpty && pass.isNotEmpty) {
+                                      await prefs.setString('savedEmail', email);
+                                      await _secureStorage.write(key: 'savedPassword', value: pass);
+                                    }
+                                  }
+                                },
+                                title: const Text('Remember me'),
+                                controlAffinity: ListTileControlAffinity.leading,
                               ),
 
                               const SizedBox(height: 6),
