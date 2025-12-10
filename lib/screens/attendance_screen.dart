@@ -1,10 +1,18 @@
 // attendance_screen.dart
+import 'dart:io';
+
+import 'package:camera/camera.dart'; // ✅ in-app camera
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart'; // ✅ compress
+import 'package:path_provider/path_provider.dart'; // ✅ temp dir
+import 'package:path/path.dart' as p; // ✅ file paths
+
 import '../services/attendance_service.dart';
 import '../services/location_service.dart';
+import 'attendance_camera_screen.dart'; // ✅ new screen
 
 class AttendanceScreen extends StatefulWidget {
   final String userId; // may be authUid or docId (we’ll resolve)
@@ -43,6 +51,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   // persistent controller for the note field (prevents rebuild issues)
   final TextEditingController _noteController = TextEditingController();
+
+  // ✅ captured image (from in-app camera)
+  File? _attendanceImage;
 
   @override
   void initState() {
@@ -87,7 +98,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         }
       }
 
-      if (resolved != null && resolved.isNotEmpty && resolved != _effectiveUserId) {
+      if (resolved != null &&
+          resolved.isNotEmpty &&
+          resolved != _effectiveUserId) {
         // Update effective id and restart location service with the correct id
         _effectiveUserId = resolved;
         // Recreate the LocationService with the resolved id
@@ -112,8 +125,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     // Also find any open shift across recent dates
     Map<String, dynamic>? found;
     try {
-      // search a few days back (service default is fine); adjust if needed
-      final foundMap = await _att.findLatestOpenShiftAcrossDates(_effectiveUserId, maxDaysBack: 3, maxAgeHours: 72);
+      final foundMap = await _att.findLatestOpenShiftAcrossDates(
+        _effectiveUserId,
+        maxDaysBack: 3,
+        maxAgeHours: 72,
+      );
       found = foundMap;
     } catch (_) {
       found = null;
@@ -125,7 +141,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       note = (data != null ? (data['note'] ?? '') : '') as String;
       if (found != null) {
         _openShiftDate = (found['date'] as String?) ?? null;
-        _openShiftNumberAcrossDates = (found['shiftNumber'] as int?) ?? null;
+        _openShiftNumberAcrossDates =
+            (found['shiftNumber'] as int?) ?? null;
       } else {
         _openShiftDate = null;
         _openShiftNumberAcrossDates = null;
@@ -134,20 +151,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     // determine tracking based on open shift (shifts map) or fallback to top-level fields
     final hasOpenToday = _hasOpenShift(att);
-    final topLevelOpen = att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null;
+    final topLevelOpen =
+        att != null && att?['checkInMs'] != null && att?['checkOutMs'] == null;
     final crossDateOpen = _openShiftNumberAcrossDates != null;
 
     tracking = hasOpenToday || topLevelOpen || crossDateOpen;
     if (tracking) {
       await _loc?.start();
     } else {
-      // ensure location is stopped if not tracking
       try {
         await _loc?.stop();
       } catch (_) {}
     }
 
-    // keep controller in sync after load
     _noteController.text = note;
   }
 
@@ -165,7 +181,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     return false;
   }
 
-  List<MapEntry<int, Map<String, dynamic>>> _getShiftsSorted(Map<String, dynamic>? data) {
+  List<MapEntry<int, Map<String, dynamic>>> _getShiftsSorted(
+      Map<String, dynamic>? data) {
     if (data == null) return [];
     final raw = data['shifts'];
     if (raw == null || raw is! Map<String, dynamic>) return [];
@@ -191,17 +208,76 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   bool get canCheckIn {
-    // allow check-in only if there is no open shift (today or across dates)
-    return _latestOpenShiftNumber(att) == null && _openShiftNumberAcrossDates == null;
+    return _latestOpenShiftNumber(att) == null &&
+        _openShiftNumberAcrossDates == null;
   }
 
   bool get canCheckOut {
-    // allow checkout if there is an open shift today OR an open shift found across dates
-    return _latestOpenShiftNumber(att) != null || _openShiftNumberAcrossDates != null;
+    return _latestOpenShiftNumber(att) != null ||
+        _openShiftNumberAcrossDates != null;
+  }
+
+  // ✅ In-app camera: open our custom camera screen and get image back
+  Future<void> _captureAttendanceImage() async {
+    debugPrint('[_captureAttendanceImage] Opening in-app camera...');
+    final XFile? pic = await Navigator.push<XFile?>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AttendanceCameraScreen(),
+        fullscreenDialog: true,
+      ),
+    );
+
+    if (pic != null) {
+      debugPrint('[_captureAttendanceImage] Result: ${pic.path}');
+      setState(() {
+        _attendanceImage = File(pic.path);
+      });
+      debugPrint('[_captureAttendanceImage] Image set in state');
+    } else {
+      debugPrint('[_captureAttendanceImage] User cancelled camera');
+    }
+  }
+
+  /// ✅ Compress image before upload to make check-in/out faster
+  Future<File> _compressAttendanceImage(File file) async {
+    try {
+      final dir = await getTemporaryDirectory();
+      final targetPath =
+          p.join(dir.path, 'att_${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+      final result = await FlutterImageCompress.compressAndGetFile(
+        file.absolute.path,
+        targetPath,
+        quality: 60, // 0–100
+        minWidth: 640,
+        minHeight: 640,
+        format: CompressFormat.jpeg,
+      );
+
+      if (result == null) {
+        debugPrint('[compress] Compression returned null, using original');
+        return file;
+      }
+
+      debugPrint('[compress] Original: ${file.lengthSync()} bytes, '
+          'Compressed: ${File(result.path).lengthSync()} bytes');
+
+      return File(result.path);
+    } catch (e) {
+      debugPrint('[compress] Failed: $e');
+      return file; // fallback
+    }
   }
 
   Future<void> checkIn() async {
+    debugPrint('[checkIn] canCheckIn=$canCheckIn mounted=$mounted');
     if (!canCheckIn || !mounted) return;
+
+    if (_attendanceImage == null) {
+      showSnack(context, 'Please capture a photo before checking in');
+      return;
+    }
 
     final ok = await showConfirm(context, 'Confirm check-in now?');
     if (!ok) return;
@@ -215,9 +291,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       try {
         final bgGranted = await _loc!.requestBgPermission();
         if (!bgGranted && mounted) {
-          showSnack(context, "Please allow 'Location • Always' for continuous tracking.");
+          showSnack(context,
+              "Please allow 'Location • Always' for continuous tracking.");
         }
       } catch (_) {}
+
+      final now = DateTime.now();
+
+      debugPrint('[checkIn] Compressing image...');
+      final compressed = await _compressAttendanceImage(_attendanceImage!);
+
+      debugPrint('[checkIn] Uploading image...');
+      final url = await _att.uploadAttendanceImage(
+        imageFile: compressed,
+        driverId: _effectiveUserId,
+        timestamp: now,
+        type: 'check-in',
+        // date not needed here; now maps to todayISO()
+      );
+      debugPrint('[checkIn] Image uploaded. URL=$url');
 
       await _att.checkIn(
         _effectiveUserId,
@@ -225,12 +317,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         note: note,
         uid: FirebaseAuth.instance.currentUser?.uid,
       );
+      debugPrint('[checkIn] Attendance doc updated');
 
-      // Start tracking only after successful check-in
+      setState(() {
+        _attendanceImage = null;
+      });
+
       await _loc?.start();
       await _load();
       setState(() => tracking = true);
       if (mounted) showSnack(context, 'Checked-in.');
+    } catch (e, st) {
+      debugPrint('[checkIn] ERROR: $e');
+      debugPrint('[checkIn] STACK: $st');
+      if (mounted) showSnack(context, 'Failed to check-in: $e');
     } finally {
       setState(() => saving = false);
     }
@@ -238,34 +338,119 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   Future<void> checkOut({int? shiftNumber}) async {
     if (!canCheckOut) return;
+
+    if (_attendanceImage == null) {
+      showSnack(context, 'Please capture a photo before checking out');
+      return;
+    }
+
     final ok = await showConfirm(context, 'Confirm check-out now?');
     if (!ok) return;
 
     setState(() => saving = true);
     try {
-      // ✅ CRITICAL ORDER: stop tracking FIRST to avoid saving a point at checkout
       await _loc?.stop();
 
-      // Then call checkout. The service will find and checkout across dates if needed.
-      // If we know a specific cross-date shiftNumber, pass it; otherwise let service find it.
-      final useShift = shiftNumber ?? _openShiftNumberAcrossDates;
-      if (useShift != null) {
-        // Passing shiftNumber will attempt to checkout that specific shift; service will search across dates if needed.
+      // --- DETERMINE targetDate & targetShift BEFORE uploading image ---
+      String targetDate = _att.todayISO();
+      int? targetShift = shiftNumber;
+
+      final todayOpen = _latestOpenShiftNumber(att);
+
+      if (shiftNumber != null) {
+        // If caller specified a shiftNumber, decide which date it belongs to
+        if (todayOpen != null && shiftNumber == todayOpen) {
+          // This shift is open in today's doc
+          targetDate = _att.todayISO();
+          targetShift = shiftNumber;
+        } else if (_openShiftNumberAcrossDates != null &&
+            _openShiftDate != null &&
+            shiftNumber == _openShiftNumberAcrossDates) {
+          // This is the cross-date open shift
+          targetDate = _openShiftDate!;
+          targetShift = shiftNumber;
+        } else {
+          // Fallback: try to discover via service
+          final found = await _att.findLatestOpenShiftAcrossDates(
+            _effectiveUserId,
+            maxDaysBack: 3,
+            maxAgeHours: 72,
+          );
+          if (found != null &&
+              (found['shiftNumber'] as int?) == shiftNumber) {
+            targetDate = found['date'] as String;
+            targetShift = shiftNumber;
+          } else {
+            // Last fallback: assume today (keeps behavior predictable)
+            targetDate = _att.todayISO();
+            targetShift = shiftNumber;
+          }
+        }
+      } else {
+        // No explicit shiftNumber: choose open shift preferring today's doc
+        if (todayOpen != null) {
+          targetDate = _att.todayISO();
+          targetShift = todayOpen;
+        } else if (_openShiftNumberAcrossDates != null &&
+            _openShiftDate != null) {
+          targetDate = _openShiftDate!;
+          targetShift = _openShiftNumberAcrossDates;
+        } else {
+          final found = await _att.findLatestOpenShiftAcrossDates(
+            _effectiveUserId,
+            maxDaysBack: 3,
+            maxAgeHours: 72,
+          );
+          if (found != null) {
+            targetDate = found['date'] as String;
+            targetShift = found['shiftNumber'] as int?;
+          }
+        }
+      }
+
+      debugPrint(
+          '[checkOut] Target date for checkout: $targetDate, shift: $targetShift');
+
+      debugPrint('[checkOut] Compressing image...');
+      final compressed = await _compressAttendanceImage(_attendanceImage!);
+
+      // Use current time for filename; explicitly force the doc date via `date: targetDate`
+      debugPrint('[checkOut] Uploading image tied to date $targetDate...');
+      final url = await _att.uploadAttendanceImage(
+        imageFile: compressed,
+        driverId: _effectiveUserId,
+        timestamp: DateTime.now(),
+        type: 'check-out',
+        date: targetDate, // ✅ ensure image is stored under the shift's date
+      );
+      debugPrint('[checkOut] Image uploaded. URL=$url');
+
+      // Now perform the checkout against the correct date/shift
+      if (targetShift != null) {
         await _att.checkOut(
           _effectiveUserId,
-          shiftNumber: useShift,
+          shiftNumber: targetShift,
           uid: FirebaseAuth.instance.currentUser?.uid,
         );
       } else {
+        // fallback to normal checkout discovery inside AttendanceService
         await _att.checkOut(
           _effectiveUserId,
           uid: FirebaseAuth.instance.currentUser?.uid,
         );
       }
 
+      setState(() {
+        _attendanceImage = null;
+      });
+
       await _load();
       setState(() => tracking = false);
       if (mounted) showSnack(context, 'Checked-out.');
+    } catch (e, st) {
+      debugPrint('[checkOut] ERROR: $e');
+      debugPrint('[checkOut] STACK: $st');
+      if (mounted) showSnack(context, 'Failed to check-out: $e');
     } finally {
       setState(() => saving = false);
     }
@@ -292,8 +477,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       setState(() => saving = false);
     }
   }
-
-  // --------- MOBILE-FRIENDLY UI BELOW ---------
 
   @override
   Widget build(BuildContext context) {
@@ -338,7 +521,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               // Status card
               Card(
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -348,9 +532,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          _Chip(label: 'Date: $date', icon: Icons.calendar_today),
                           _Chip(
-                            label: 'Status: ${(att?['status'] ?? '—').toString()}',
+                              label: 'Date: $date',
+                              icon: Icons.calendar_today),
+                          _Chip(
+                            label:
+                                'Status: ${(att?['status'] ?? '—').toString()}',
                             icon: Icons.verified_user_outlined,
                           ),
                           _Chip(
@@ -358,11 +545,13 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             icon: Icons.schedule,
                           ),
                           _Chip(
-                            label: 'Check-in: ${timeFromMs(att?['checkInMs'])}',
+                            label:
+                                'Check-in: ${timeFromMs(att?['checkInMs'])}',
                             icon: Icons.login,
                           ),
                           _Chip(
-                            label: 'Check-out: ${timeFromMs(att?['checkOutMs'])}',
+                            label:
+                                'Check-out: ${timeFromMs(att?['checkOutMs'])}',
                             icon: Icons.logout,
                           ),
                         ],
@@ -396,12 +585,59 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
               const SizedBox(height: 16),
 
-              // If we found an open shift across dates (started previous day), show a prominent card
+              // ✅ Camera capture card (tap to open in-app camera, preview image)
+              GestureDetector(
+                onTap: saving ? null : _captureAttendanceImage,
+                child: Container(
+                  height: 160,
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _attendanceImage == null
+                          ? theme.colorScheme.error.withOpacity(0.7)
+                          : theme.colorScheme.outline,
+                    ),
+                    color: theme.colorScheme.surfaceVariant,
+                  ),
+                  child: _attendanceImage == null
+                      ? Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.camera_alt,
+                              size: 40,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tap to capture photo (required for check-in / check-out)',
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        )
+                      : ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Image.file(
+                            _attendanceImage!,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          ),
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
               if (_openShiftDate != null && _openShiftDate != date)
                 Card(
                   color: theme.colorScheme.surfaceVariant,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 12),
                     child: Row(
                       children: [
                         Expanded(
@@ -410,7 +646,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                             children: [
                               Text(
                                 'Open shift from ${_openShiftDate}',
-                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                                style: theme.textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
                               ),
                               const SizedBox(height: 6),
                               Text(
@@ -422,7 +659,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                         ),
                         const SizedBox(width: 12),
                         ElevatedButton(
-                          onPressed: saving ? null : () => checkOut(shiftNumber: _openShiftNumberAcrossDates),
+                          onPressed: (saving || _attendanceImage == null)
+                              ? null
+                              : () => checkOut(
+                                  shiftNumber:
+                                      _openShiftNumberAcrossDates),
                           child: const Text('Checkout'),
                         ),
                       ],
@@ -432,7 +673,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
               const SizedBox(height: 12),
 
-              // List shifts
               if (shifts.isEmpty)
                 Card(
                   child: ListTile(
@@ -448,14 +688,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   final checkOutMs = data['checkOutMs'] as int?;
                   final status = (data['status'] ?? '').toString();
                   final noteText = (data['note'] ?? '').toString();
-                  final checkInTime = checkInMs != null ? timeFromMs(checkInMs) : '—';
-                  final checkOutTime = checkOutMs != null ? timeFromMs(checkOutMs) : '—';
+                  final checkInTime =
+                      checkInMs != null ? timeFromMs(checkInMs) : '—';
+                  final checkOutTime =
+                      checkOutMs != null ? timeFromMs(checkOutMs) : '—';
                   final isOpen = checkOutMs == null;
 
                   return Card(
                     child: ListTile(
                       leading: CircleAvatar(child: Text(number.toString())),
-                      title: Text('Shift $number — ${status.isNotEmpty ? status : '—'}'),
+                      title: Text(
+                          'Shift $number — ${status.isNotEmpty ? status : '—'}'),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -466,10 +709,20 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                       trailing: isOpen
                           ? PopupMenuButton<String>(
                               onSelected: (v) {
-                                if (v == 'checkout') checkOut(shiftNumber: number);
+                                if (v == 'checkout') {
+                                  if (_attendanceImage == null) {
+                                    showSnack(context,
+                                        'Please capture a photo before checking out');
+                                  } else {
+                                    checkOut(shiftNumber: number);
+                                  }
+                                }
                               },
-                              itemBuilder: (_) => [
-                                const PopupMenuItem(value: 'checkout', child: Text('Check out this shift')),
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'checkout',
+                                  child: Text('Check out this shift'),
+                                ),
                               ],
                               icon: const Icon(Icons.more_vert),
                             )
@@ -480,7 +733,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
               const SizedBox(height: 24),
 
-              // Quick actions grid for larger phones (will wrap on small screens)
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
@@ -488,13 +740,21 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   _ActionTile(
                     label: canCheckIn ? 'Check-in' : 'Checked-in',
                     icon: Icons.login,
-                    onTap: (!saving && canCheckIn) ? checkIn : null,
+                    onTap: (!saving &&
+                            canCheckIn &&
+                            _attendanceImage != null)
+                        ? checkIn
+                        : null,
                     tone: _ActionTone.primary,
                   ),
                   _ActionTile(
                     label: canCheckOut ? 'Check-out' : 'Checked-out',
                     icon: Icons.logout,
-                    onTap: (!saving && canCheckOut) ? () => checkOut(shiftNumber: latestOpen) : null,
+                    onTap: (!saving &&
+                            canCheckOut &&
+                            _attendanceImage != null)
+                        ? () => checkOut(shiftNumber: latestOpen)
+                        : null,
                     tone: _ActionTone.secondary,
                   ),
                   _ActionTile(
@@ -509,8 +769,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           ),
         ),
       ),
-
-      // Sticky bottom call-to-action bar
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
@@ -520,18 +778,25 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             child: ElevatedButton.icon(
               onPressed: saving
                   ? null
-                  : canCheckOut
+                  : (canCheckOut && _attendanceImage != null)
                       ? () => checkOut(shiftNumber: latestOpen)
-                      : (canCheckIn ? checkIn : null),
+                      : (canCheckIn && _attendanceImage != null)
+                          ? checkIn
+                          : null,
               icon: Icon(canCheckOut ? Icons.logout : Icons.login),
               label: Text(
-                canCheckOut ? 'Check-out' : (canCheckIn ? 'Check-in' : 'Done for today'),
+                canCheckOut
+                    ? 'Check-out'
+                    : (canCheckIn ? 'Check-in' : 'Done for today'),
                 overflow: TextOverflow.ellipsis,
               ),
               style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                textStyle: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w700),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20),
               ),
             ),
           ),
@@ -541,7 +806,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   int? get latestOpen {
-    // prefer today's open shift number; if none, fallback to cross-date open shift number
     final todayOpen = _latestOpenShiftNumber(att);
     if (todayOpen != null) return todayOpen;
     return _openShiftNumberAcrossDates;
@@ -558,7 +822,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       builder: (ctx) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -616,7 +881,8 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: color ?? theme.colorScheme.surfaceVariant,
         borderRadius: BorderRadius.circular(999),
@@ -625,7 +891,9 @@ class _Chip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 16, color: theme.colorScheme.onSurfaceVariant),
+            Icon(icon,
+                size: 16,
+                color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(width: 6),
           ],
           Text(
@@ -665,7 +933,8 @@ class _ActionTile extends StatelessWidget {
     };
     final fg = switch (tone) {
       _ActionTone.primary => theme.colorScheme.onPrimaryContainer,
-      _ActionTone.secondary => theme.colorScheme.onSecondaryContainer,
+      _ActionTone.secondary =>
+        theme.colorScheme.onSecondaryContainer,
       _ => theme.colorScheme.onSurfaceVariant,
     };
 
@@ -676,7 +945,8 @@ class _ActionTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: Container(
           width: 120,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+          padding: const EdgeInsets.symmetric(
+              horizontal: 14, vertical: 16),
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(14),
@@ -707,7 +977,8 @@ class _SheetAction extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  const _SheetAction({required this.icon, required this.label, required this.onTap});
+  const _SheetAction(
+      {required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -715,9 +986,12 @@ class _SheetAction extends StatelessWidget {
     return ListTile(
       onTap: onTap,
       leading: Icon(icon, color: theme.colorScheme.primary),
-      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+      title: Text(label,
+          style: const TextStyle(fontWeight: FontWeight.w700)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 8),
       minLeadingWidth: 24,
     );
   }
@@ -725,7 +999,8 @@ class _SheetAction extends StatelessWidget {
 
 String timeFromMs(dynamic ms) {
   if (ms == null) return '—';
-  final d = DateTime.fromMillisecondsSinceEpoch((ms as num).toInt());
+  final d =
+      DateTime.fromMillisecondsSinceEpoch((ms as num).toInt());
   return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }
 
@@ -736,8 +1011,12 @@ Future<bool> showConfirm(BuildContext ctx, String msg) async {
           title: const Text('Confirm'),
           content: Text(msg),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('No')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Yes')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('No')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Yes')),
           ],
         ),
       ) ??
@@ -745,5 +1024,6 @@ Future<bool> showConfirm(BuildContext ctx, String msg) async {
 }
 
 void showSnack(BuildContext ctx, String msg) {
-  ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(content: Text(msg)));
+  ScaffoldMessenger.of(ctx)
+      .showSnackBar(SnackBar(content: Text(msg)));
 }

@@ -1,23 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart'; // ✅ add this
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_shell.dart';
 
-// Background handler
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {}
+// 🔔 Background FCM handler (must be a top-level function)
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // If you need Firebase features in background, ensure it's initialized
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // print / handle message if needed
+}
 
+// Single instance for local notifications
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin(); // ✅ now exists
+    FlutterLocalNotificationsPlugin();
 
-void main() async {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // ✅ Initialize Firebase (needed for Storage / Firestore / Messaging)
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Register background handler
+  // ✅ Register background message handler
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   // ---------- ANDROID CHANNEL WITH CUSTOM SOUND ----------
@@ -29,7 +37,7 @@ void main() async {
     sound: RawResourceAndroidNotificationSound('urgent_delivery'), // raw/urgent_delivery.mp3
   );
 
-  // Create channel once
+  // Create notification channel (Android)
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
