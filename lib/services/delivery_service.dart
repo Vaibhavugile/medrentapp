@@ -5,31 +5,34 @@ class DeliveryService {
 
   /// Stages copied 1:1 from web
   static const stages = [
-    'assigned', 'accepted', 'in_transit', 'delivered', 'completed', 'rejected'
+    'assigned',
+    'accepted',
+    'in_transit',
+    'delivered',
+    'completed',
+    'rejected'
   ];
 
   static String label(String s) => const {
-    'assigned': 'Assigned',
-    'accepted': 'Accepted',
-    'in_transit': 'Pickup / In transit',
-    'delivered': 'Delivered',
-    'completed': 'Completed',
-    'rejected': 'Rejected',
-  }[s] ?? s;
+        'assigned': 'Assigned',
+        'accepted': 'Accepted',
+        'in_transit': 'Pickup / In transit',
+        'delivered': 'Delivered',
+        'completed': 'Completed',
+        'rejected': 'Rejected',
+      }[s] ??
+      s;
 
-  // -------------------- helpers (new) --------------------
+  // -------------------- helpers --------------------
 
-  /// Normalize various timestamp-like values to millisecondsSinceEpoch.
   int? _toMillis(dynamic v) {
     if (v == null) return null;
     if (v is Timestamp) return v.millisecondsSinceEpoch;
     if (v is int) return v;
     if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch;
     return null;
-    }
+  }
 
-  /// Extract the earliest expectedStartDate from delivery.items.
-  /// Supports: List<Map> or single Map; flexible key spellings.
   dynamic _extractExpectedStartDateFromItems(dynamic items) {
     int? bestMs;
 
@@ -45,7 +48,6 @@ class DeliveryService {
         consider(it['expectedStartDate']);
         consider(it['expectedstartdate']);
         consider(it['expected_start_date']);
-        // sometimes nested under schedule/scheduling objects
         final sched = it['schedule'] ?? it['scheduling'];
         if (sched is Map) {
           consider(sched['expectedStartDate']);
@@ -58,24 +60,26 @@ class DeliveryService {
       consider(items['expected_start_date']);
     }
 
-    // Return milliseconds (int) so UI formatters can handle it easily.
     return bestMs;
   }
 
-  // -------------------- streams & mutations --------------------
+  // -------------------- STREAM --------------------
 
-  /// Stream deliveries for a driver + hydrate order + merge histories (same as web)
+  /// Stream deliveries where THIS driver is part of drivers[]
   Stream<List<Map<String, dynamic>>> streamDriverDeliveries(String driverId) {
-    final q = _db.collection('deliveries').where('driverId', isEqualTo: driverId);
+    final q = _db
+    .collection('deliveries')
+    .where('assignedDriverIds', arrayContains: driverId);
+
+
     return q.snapshots().asyncMap((snap) async {
       final out = <Map<String, dynamic>>[];
 
-      // NOTE: simple sequential hydration is clear; you can parallelize later with Future.wait
       for (final doc in snap.docs) {
         final data = {'id': doc.id, ...?doc.data()};
         final orderId = (data['orderId'] ?? data['order']?['id'])?.toString();
 
-        // attach order (best-effort)
+        // attach order
         if (orderId != null && orderId.isNotEmpty) {
           try {
             final o = await _db.doc('orders/$orderId').get();
@@ -87,22 +91,21 @@ class DeliveryService {
           data['order'] = data['order'] ?? {};
         }
 
-        // --- NEW: pull expectedStartDate from delivery.items and expose at root ---
-        final expectedStart = _extractExpectedStartDateFromItems(data['items']);
+        final expectedStart =
+            _extractExpectedStartDateFromItems(data['items']);
         if (expectedStart != null) {
-          data['expectedStartDate'] = expectedStart; // int (ms since epoch)
+          data['expectedStartDate'] = expectedStart;
         }
-        // --- END NEW ---
 
-        // merge histories (order.deliveryHistory + delivery.history)
+        // merge histories
         List<Map<String, dynamic>> canon(dynamic arr) {
-          if (arr is! List) return const <Map<String, dynamic>>[];
+          if (arr is! List) return const [];
           return arr.map<Map<String, dynamic>>((h) {
-            final m = (h is Map) ? h : <String, dynamic>{};
+            final m = (h is Map) ? h : {};
             return {
-              'stage': (m['stage'] ?? m['name'] ?? m['note'] ?? '').toString(),
-              'at': m['at'] ?? m['createdAt'] ?? m['timestamp'],
-              'by': (m['by'] ?? m['byId'] ?? m['createdBy'] ?? '').toString(),
+              'stage': (m['stage'] ?? m['note'] ?? '').toString(),
+              'at': m['at'] ?? m['createdAt'],
+              'by': (m['by'] ?? '').toString(),
               'note': (m['note'] ?? '').toString(),
             };
           }).toList();
@@ -116,9 +119,12 @@ class DeliveryService {
               final v = x['at'];
               if (v is Timestamp) return v.millisecondsSinceEpoch;
               if (v is int) return v;
-              if (v is String) return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
+              if (v is String) {
+                return DateTime.tryParse(v)?.millisecondsSinceEpoch ?? 0;
+              }
               return 0;
             }
+
             return toMs(a).compareTo(toMs(b));
           });
 
@@ -129,78 +135,223 @@ class DeliveryService {
     });
   }
 
-  /// Write stage to both delivery + order with a single batch (same as web)
-  Future<void> updateStage({
+  // -------------------- ACCEPT --------------------
+
+  /// Driver accepts delivery. Status becomes `accepted` ONLY when all accept.
+ Future<void> acceptDelivery({
+  required String deliveryId,
+  required String driverId,
+}) async {
+  final ref = _db.doc('deliveries/$deliveryId');
+
+  await ref.update({
+    'status': 'accepted',
+    'lastUpdatedBy': driverId,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+
+  // -------------------- SCAN --------------------
+
+  /// Any driver can scan assets. Shared global scan state.
+  Future<void> addScan({
     required String deliveryId,
-    required String newStage,
-    String? driverName,
-    String? byUid,
+    required String assetId,
+    required String driverId,
   }) async {
     final ref = _db.doc('deliveries/$deliveryId');
-    final before = await ref.get();
-    final payload = before.data() ?? {};
-    final orderId = (payload['orderId'] ?? payload['order']?['id'])?.toString();
 
-    final entry = {
-      'stage': newStage,
-      'at': DateTime.now().toIso8601String(),
-      'by': byUid ?? '',
-      'note': 'Driver ${driverName ?? ''} set $newStage',
-    };
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      if (!snap.exists) return;
 
-    final batch = _db.batch();
-    batch.update(ref, {
-      'status': newStage,
-      'history': FieldValue.arrayUnion([entry]),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'updatedBy': byUid ?? '',
-    });
+      final data = snap.data()!;
+      final List expected = List.from(data['expectedAssetIds'] ?? []);
+      final Map scanned =
+          Map<String, dynamic>.from(data['scannedAssets'] ?? {});
 
-    if (orderId != null && orderId.isNotEmpty) {
-      final oref = _db.doc('orders/$orderId');
-      batch.update(oref, {
-        'deliveryStatus': newStage,
-        'deliveryHistory': FieldValue.arrayUnion([entry]),
+      if (!expected.contains(assetId)) {
+        throw Exception('Asset not expected');
+      }
+      if (scanned.containsKey(assetId)) {
+        throw Exception('Asset already scanned');
+      }
+
+      scanned[assetId] = {
+        'by': driverId,
+        'at': DateTime.now().toIso8601String(),
+      };
+
+      tx.update(ref, {
+        'scannedAssets': scanned,
         'updatedAt': FieldValue.serverTimestamp(),
-        'updatedBy': byUid ?? '',
       });
-    }
-    await batch.commit();
+    });
   }
 
-  /// Build expected assets in this precedence:
-  /// 1) delivery.items[].assignedAssets
-  /// 2) else order.items[].assignedAssets
-  /// 3) else delivery.expectedAssetIds
-  /// Then resolve each asset doc to human assetId, skipping assets already 'out_for_rental'
-  Future<List<Map<String, String>>> loadExpectedAssets(Map<String, dynamic> delivery) async {
-    final order = (delivery['order'] ?? {}) as Map<String, dynamic>;
-    final List dItems = (delivery['items'] is List) ? delivery['items'] : const [];
-    final List oItems = (order['items'] is List) ? order['items'] : const [];
+  // -------------------- PICKUP COMPLETE --------------------
 
-    final Map<String, String> assetDocIdToItemName = {};
+  /// Auto-move to in_transit when ALL assets scanned
+ Future<void> tryCompletePickup({
+  required String deliveryId,
+  required String leaderDriverId,
+}) async {
+  final deliveryRef = _db.doc('deliveries/$deliveryId');
 
-    // A) delivery items
-    for (final it in dItems) {
-      final List arr = (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : const [];
-      for (final a in arr) {
-        assetDocIdToItemName[a.toString()] = (it['name'] ?? 'Item').toString();
+  print('🚚 [PICKUP] tryCompletePickup called for $deliveryId');
+
+  await _db.runTransaction((tx) async {
+    print('🟡 [PICKUP] Transaction started');
+
+    // 1️⃣ READ DELIVERY
+    final deliverySnap = await tx.get(deliveryRef);
+    if (!deliverySnap.exists) {
+      print('🔴 [PICKUP] Delivery not found');
+      return;
+    }
+
+    final data = deliverySnap.data()!;
+    final String status = (data['status'] ?? '').toString();
+
+    final List<String> expectedAssetIds =
+        List<String>.from(data['expectedAssetIds'] ?? []);
+
+    final Map<String, dynamic> scannedAssets =
+        Map<String, dynamic>.from(data['scannedAssets'] ?? {});
+
+    print('🟢 [PICKUP] Status=$status');
+    print('🟢 [PICKUP] Expected=$expectedAssetIds');
+    print('🟢 [PICKUP] Scanned=${scannedAssets.keys.toList()}');
+
+    if (expectedAssetIds.isEmpty) {
+      print('⚠️ [PICKUP] No expected assets → EXIT');
+      return;
+    }
+
+    if (status == 'in_transit' ||
+        status == 'delivered' ||
+        status == 'completed') {
+      print('⚠️ [PICKUP] Already advanced → EXIT');
+      return;
+    }
+
+    // 2️⃣ VERIFY ALL EXPECTED ASSETS ARE SCANNED
+    for (final assetDocId in expectedAssetIds) {
+      if (!scannedAssets.containsKey(assetDocId)) {
+        print('❌ [PICKUP] Missing scan for $assetDocId → EXIT');
+        return;
       }
     }
 
-    // B) order items
+    print('✅ [PICKUP] All assets scanned');
+
+    // 3️⃣ READ ALL ASSETS FIRST (NO WRITES YET)
+    final Map<String, Map<String, dynamic>> assetDataMap = {};
+
+    for (final assetDocId in expectedAssetIds) {
+      final assetRef = _db.doc('assets/$assetDocId');
+      final assetSnap = await tx.get(assetRef);
+
+      if (!assetSnap.exists) {
+        print('⚠️ [PICKUP] Asset $assetDocId missing');
+        continue;
+      }
+
+      assetDataMap[assetDocId] = assetSnap.data()!;
+      print(
+        '📦 [PICKUP] Read asset $assetDocId status=${assetSnap.data()!['status']}',
+      );
+    }
+
+    // 4️⃣ WRITE: CHECK OUT ASSETS
+    for (final entry in assetDataMap.entries) {
+      final assetDocId = entry.key;
+      final assetData = entry.value;
+
+      final currentStatus =
+          (assetData['status'] ?? '').toString().toLowerCase();
+
+      if (currentStatus == 'out_for_rental') {
+        print('⚠️ [PICKUP] Asset $assetDocId already out_for_rental');
+        continue;
+      }
+
+      print('✅ [PICKUP] Checking out asset $assetDocId');
+
+      tx.update(_db.doc('assets/$assetDocId'), {
+        'status': 'out_for_rental',
+        'checkedOutAt': FieldValue.serverTimestamp(),
+        'checkedOutByDelivery': deliveryId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 5️⃣ WRITE: UPDATE DELIVERY STAGE
+    print('🚀 [PICKUP] Moving delivery to in_transit');
+
+    tx.update(deliveryRef, {
+      'status': 'in_transit',
+      'leaderDriverId': leaderDriverId,
+      'pickedUpAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    print('🎉 [PICKUP] Transaction completed SUCCESSFULLY');
+  });
+}
+
+
+  // -------------------- STAGE UPDATE --------------------
+
+  /// Global stage update (ANY driver triggers → ALL drivers updated)
+  Future<void> updateStage({
+    required String deliveryId,
+    required String newStage,
+    String? byDriverId,
+  }) async {
+    final ref = _db.doc('deliveries/$deliveryId');
+
+    await ref.update({
+      'status': newStage,
+      'lastUpdatedBy': byDriverId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // -------------------- EXPECTED ASSETS --------------------
+
+  Future<List<Map<String, String>>> loadExpectedAssets(
+      Map<String, dynamic> delivery) async {
+    final order = (delivery['order'] ?? {}) as Map<String, dynamic>;
+    final List dItems = delivery['items'] is List ? delivery['items'] : [];
+    final List oItems = order['items'] is List ? order['items'] : [];
+
+    final Map<String, String> assetDocIdToItemName = {};
+
+    for (final it in dItems) {
+      final List arr =
+          (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : [];
+      for (final a in arr) {
+        assetDocIdToItemName[a.toString()] =
+            (it['name'] ?? 'Item').toString();
+      }
+    }
+
     if (assetDocIdToItemName.isEmpty) {
       for (final it in oItems) {
-        final List arr = (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : const [];
+        final List arr =
+            (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : [];
         for (final a in arr) {
-          assetDocIdToItemName[a.toString()] = (it['name'] ?? 'Item').toString();
+          assetDocIdToItemName[a.toString()] =
+              (it['name'] ?? 'Item').toString();
         }
       }
     }
 
-    // C) delivery.expectedAssetIds
     if (assetDocIdToItemName.isEmpty) {
-      final List exp = (delivery['expectedAssetIds'] is List) ? delivery['expectedAssetIds'] : const [];
+      final List exp =
+          delivery['expectedAssetIds'] is List ? delivery['expectedAssetIds'] : [];
       for (final a in exp) {
         assetDocIdToItemName[a.toString()] = 'Item';
       }
