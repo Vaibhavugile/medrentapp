@@ -52,6 +52,10 @@ class _TasksScreenState extends State<TasksScreen> {
     super.dispose();
   }
 
+bool _isReturn(Map<String, dynamic> d) {
+  return (d['deliveryType'] ?? '').toString().toLowerCase() == 'return';
+}
+
   List<Map<String, dynamic>> get _filtered {
     final q = _query.trim().toLowerCase();
     if (q.isEmpty) return _all;
@@ -461,6 +465,249 @@ Future<void> _startPickup(Map<String, dynamic> delivery) async {
   );
 }
 
+Future<void> _startReturn(Map<String, dynamic> delivery) async {
+  debugPrint('🔵 START RETURN for delivery=${delivery['id']}');
+
+  final expected = await _svc.loadExpectedAssets(delivery);
+  debugPrint('🔵 EXPECTED ASSETS RAW = $expected');
+
+  if (expected.isEmpty) {
+    debugPrint('🔴 NO EXPECTED ASSETS FOR RETURN');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No assets to scan for return.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+    return;
+  }
+
+  // 🔑 assetId -> assetDocId
+  final Map<String, String> expectedMap = {};
+  for (final e in expected) {
+    final assetId = (e['assetId'] ?? '').toString().trim();
+    final assetDocId = (e['assetDocId'] ?? '').toString().trim();
+    if (assetId.isNotEmpty && assetDocId.isNotEmpty) {
+      expectedMap[assetId] = assetDocId;
+    }
+  }
+
+  debugPrint('🔵 EXPECTED MAP (assetId → docId) = $expectedMap');
+
+  final Set<String> scannedDocIds = {};
+  final TextEditingController manualCtrl = TextEditingController();
+
+  final rawScanned =
+      Map<String, dynamic>.from(delivery['scannedAssets'] ?? {});
+  scannedDocIds.addAll(rawScanned.keys);
+
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => StatefulBuilder(
+      builder: (ctx, setSheetState) {
+        String msgText = '';
+        Color msgColor = Colors.transparent;
+
+        void setMsg(
+          String text,
+          Color color, {
+          bool hapticOk = false,
+          bool hapticWarn = false,
+          bool hapticErr = false,
+        }) {
+          msgText = text;
+          msgColor = color;
+          if (hapticOk) HapticFeedback.mediumImpact();
+          if (hapticWarn) HapticFeedback.selectionClick();
+          if (hapticErr) HapticFeedback.heavyImpact();
+          setSheetState(() {});
+        }
+
+        String? _matchScan(String payload) {
+          final raw = payload.trim();
+          if (raw.isEmpty) return null;
+          if (expectedMap.containsKey(raw)) return raw;
+          for (final id in expectedMap.keys) {
+            if (raw.contains(id)) return id;
+          }
+          return null;
+        }
+
+        DateTime _lastHandled = DateTime.fromMillisecondsSinceEpoch(0);
+        const int _cooldownMs = 900;
+
+        Future<void> _handleScan(String raw) async {
+          final hitAssetId = _matchScan(raw);
+          if (hitAssetId == null) {
+            setMsg('QR not matched for this return', Colors.red,
+                hapticErr: true);
+            return;
+          }
+
+          final assetDocId = expectedMap[hitAssetId]!;
+          if (scannedDocIds.contains(assetDocId)) {
+            setMsg('Already scanned: $hitAssetId', Colors.orange,
+                hapticWarn: true);
+            return;
+          }
+
+          try {
+            await _svc.addScan(
+              deliveryId: delivery['id'].toString(),
+              assetId: assetDocId,
+              driverId: widget.driverId,
+            );
+
+            setSheetState(() {
+              scannedDocIds.add(assetDocId);
+            });
+
+            setMsg('Returned: $hitAssetId', Colors.green, hapticOk: true);
+
+            await _svc.tryCompleteReturn(
+              deliveryId: delivery['id'].toString(),
+              leaderDriverId: widget.driverId,
+            );
+
+            if (scannedDocIds.length >= expected.length) {
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+
+              if (!mounted) return;
+              showDialog(
+                context: context,
+                builder: (_) => const AlertDialog(
+                  title: Text('Return Completed'),
+                  content: Text('All assets returned successfully.'),
+                ),
+              );
+            }
+          } catch (e) {
+            debugPrint('🔥 RETURN SCAN FAILED error=$e');
+            setMsg('Failed to record return scan', Colors.red,
+                hapticErr: true);
+          }
+        }
+
+        void _onDetect(BarcodeCapture cap) async {
+          final now = DateTime.now();
+          if (now.difference(_lastHandled).inMilliseconds < _cooldownMs) return;
+
+          for (final b in cap.barcodes) {
+            final raw = (b.rawValue ?? '').trim();
+            if (raw.isNotEmpty) {
+              _lastHandled = now;
+              await _handleScan(raw);
+              break;
+            }
+          }
+        }
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 8,
+              bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Scan assets for return',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${scannedDocIds.length} of ${expected.length} returned',
+                  style: const TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 8),
+
+                // 📷 CAMERA
+                SizedBox(
+                  height: 220,
+                  child: MobileScanner(onDetect: _onDetect),
+                ),
+
+                const SizedBox(height: 8),
+
+                // ⌨️ MANUAL VERIFY
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: manualCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Enter asset ID manually',
+                          hintText: 'e.g. NKU45',
+                          border: OutlineInputBorder(),
+                        ),
+                        onSubmitted: (v) {
+                          _handleScan(v);
+                          manualCtrl.clear();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {
+                        _handleScan(manualCtrl.text);
+                        manualCtrl.clear();
+                      },
+                      child: const Text('Verify'),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // 📋 EXPECTED LIST (THIS WAS MISSING)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 240),
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: expected.length,
+                    itemBuilder: (_, i) {
+                      final e = expected[i];
+                      final assetId = e['assetId'] as String;
+                      final assetDocId = expectedMap[assetId]!;
+                      final ok = scannedDocIds.contains(assetDocId);
+
+                      return ListTile(
+                        dense: true,
+                        leading: Icon(
+                          ok ? Icons.check_circle : Icons.qr_code_2,
+                          color: ok ? Colors.green : Colors.orange,
+                        ),
+                        title: Text('${e['itemName']} • $assetId'),
+                        trailing: Text(
+                          ok ? 'Returned' : 'Pending',
+                          style: TextStyle(
+                            color: ok ? Colors.green : Colors.orange,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -569,7 +816,14 @@ Future<void> _startPickup(Map<String, dynamic> delivery) async {
                           deliveryId: d['id'].toString(),
                           stage: 'rejected',
                         ),
-                        onStartPickup: () => _startPickup(d),
+                        onStartPickup: () {
+  if (_isReturn(d)) {
+    _startReturn(d);
+  } else {
+    _startPickup(d);
+  }
+},
+
                         onDelivered: () => _updateStage(
                           deliveryId: d['id'].toString(),
                           stage: 'delivered',
@@ -650,6 +904,9 @@ class _Actions extends StatelessWidget {
       return FilledButton(
         onPressed: onStartPickup,
         child: const Text('Start Pickup'),
+
+
+
       );
     }
 

@@ -300,6 +300,111 @@ class DeliveryService {
     print('🎉 [PICKUP] Transaction completed SUCCESSFULLY');
   });
 }
+Future<void> tryCompleteReturn({
+  required String deliveryId,
+  required String leaderDriverId,
+}) async {
+  final deliveryRef = _db.doc('deliveries/$deliveryId');
+
+  print('🔁 [RETURN] tryCompleteReturn called for $deliveryId');
+
+  await _db.runTransaction((tx) async {
+    print('🟡 [RETURN] Transaction started');
+
+    // 1️⃣ READ DELIVERY
+    final deliverySnap = await tx.get(deliveryRef);
+    if (!deliverySnap.exists) {
+      print('🔴 [RETURN] Delivery not found');
+      return;
+    }
+
+    final data = deliverySnap.data()!;
+    final String status = (data['status'] ?? '').toString();
+
+    final List<String> expectedAssetIds =
+        List<String>.from(data['expectedAssetIds'] ?? []);
+
+    final Map<String, dynamic> scannedAssets =
+        Map<String, dynamic>.from(data['scannedAssets'] ?? {});
+
+    print('🟢 [RETURN] Status=$status');
+    print('🟢 [RETURN] Expected=$expectedAssetIds');
+    print('🟢 [RETURN] Scanned=${scannedAssets.keys.toList()}');
+
+    if (expectedAssetIds.isEmpty) {
+      print('⚠️ [RETURN] No expected assets → EXIT');
+      return;
+    }
+
+    if (status == 'completed') {
+      print('⚠️ [RETURN] Already completed → EXIT');
+      return;
+    }
+
+    // 2️⃣ VERIFY ALL EXPECTED ASSETS ARE SCANNED
+    for (final assetDocId in expectedAssetIds) {
+      if (!scannedAssets.containsKey(assetDocId)) {
+        print('❌ [RETURN] Missing scan for $assetDocId → EXIT');
+        return;
+      }
+    }
+
+    print('✅ [RETURN] All assets scanned');
+
+    // 3️⃣ READ ALL ASSETS FIRST (NO WRITES YET)
+    final Map<String, Map<String, dynamic>> assetDataMap = {};
+
+    for (final assetDocId in expectedAssetIds) {
+      final assetRef = _db.doc('assets/$assetDocId');
+      final assetSnap = await tx.get(assetRef);
+
+      if (!assetSnap.exists) {
+        print('⚠️ [RETURN] Asset $assetDocId missing');
+        continue;
+      }
+
+      assetDataMap[assetDocId] = assetSnap.data()!;
+      print(
+        '📦 [RETURN] Read asset $assetDocId status=${assetSnap.data()!['status']}',
+      );
+    }
+
+    // 4️⃣ WRITE: CHECK IN ASSETS
+    for (final entry in assetDataMap.entries) {
+      final assetDocId = entry.key;
+      final assetData = entry.value;
+
+      final currentStatus =
+          (assetData['status'] ?? '').toString().toLowerCase();
+
+      if (currentStatus == 'in_stock') {
+        print('⚠️ [RETURN] Asset $assetDocId already in_stock');
+        continue;
+      }
+
+      print('✅ [RETURN] Checking in asset $assetDocId');
+
+      tx.update(_db.doc('assets/$assetDocId'), {
+        'status': 'in_stock',
+        'checkedInAt': FieldValue.serverTimestamp(),
+        'checkedInByDelivery': deliveryId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // 5️⃣ WRITE: COMPLETE DELIVERY
+    print('🏁 [RETURN] Completing return delivery');
+
+    tx.update(deliveryRef, {
+      'status': 'completed',
+      'leaderDriverId': leaderDriverId,
+      'returnedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    print('🎉 [RETURN] Transaction completed SUCCESSFULLY');
+  });
+}
 
 
   // -------------------- STAGE UPDATE --------------------
@@ -322,14 +427,29 @@ class DeliveryService {
   // -------------------- EXPECTED ASSETS --------------------
 
   Future<List<Map<String, String>>> loadExpectedAssets(
-      Map<String, dynamic> delivery) async {
-    final order = (delivery['order'] ?? {}) as Map<String, dynamic>;
-    final List dItems = delivery['items'] is List ? delivery['items'] : [];
-    final List oItems = order['items'] is List ? order['items'] : [];
+    Map<String, dynamic> delivery) async {
+  final order = (delivery['order'] ?? {}) as Map<String, dynamic>;
+  final List dItems = delivery['items'] is List ? delivery['items'] : [];
+  final List oItems = order['items'] is List ? order['items'] : [];
 
-    final Map<String, String> assetDocIdToItemName = {};
+  final String deliveryType =
+      (delivery['deliveryType'] ?? '').toString().toLowerCase();
 
-    for (final it in dItems) {
+  final Map<String, String> assetDocIdToItemName = {};
+
+  // 1️⃣ Prefer delivery items
+  for (final it in dItems) {
+    final List arr =
+        (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : [];
+    for (final a in arr) {
+      assetDocIdToItemName[a.toString()] =
+          (it['name'] ?? 'Item').toString();
+    }
+  }
+
+  // 2️⃣ Fallback to order items
+  if (assetDocIdToItemName.isEmpty) {
+    for (final it in oItems) {
       final List arr =
           (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : [];
       for (final a in arr) {
@@ -337,43 +457,51 @@ class DeliveryService {
             (it['name'] ?? 'Item').toString();
       }
     }
-
-    if (assetDocIdToItemName.isEmpty) {
-      for (final it in oItems) {
-        final List arr =
-            (it is Map && it['assignedAssets'] is List) ? it['assignedAssets'] : [];
-        for (final a in arr) {
-          assetDocIdToItemName[a.toString()] =
-              (it['name'] ?? 'Item').toString();
-        }
-      }
-    }
-
-    if (assetDocIdToItemName.isEmpty) {
-      final List exp =
-          delivery['expectedAssetIds'] is List ? delivery['expectedAssetIds'] : [];
-      for (final a in exp) {
-        assetDocIdToItemName[a.toString()] = 'Item';
-      }
-    }
-
-    if (assetDocIdToItemName.isEmpty) return const [];
-
-    final expected = <Map<String, String>>[];
-    for (final e in assetDocIdToItemName.entries) {
-      try {
-        final snap = await _db.doc('assets/${e.key}').get();
-        if (!snap.exists) continue;
-        final a = snap.data()!;
-        final status = (a['status'] ?? '').toString().toLowerCase();
-        if (status == 'out_for_rental') continue;
-        expected.add({
-          'assetDocId': e.key,
-          'assetId': (a['assetId'] ?? '').toString(),
-          'itemName': e.value,
-        });
-      } catch (_) {}
-    }
-    return expected;
   }
+
+  // 3️⃣ Final fallback to expectedAssetIds
+  if (assetDocIdToItemName.isEmpty) {
+    final List exp = delivery['expectedAssetIds'] is List
+        ? delivery['expectedAssetIds']
+        : [];
+    for (final a in exp) {
+      assetDocIdToItemName[a.toString()] = 'Item';
+    }
+  }
+
+  if (assetDocIdToItemName.isEmpty) return const [];
+
+  final expected = <Map<String, String>>[];
+
+  // 4️⃣ Load assets & FILTER BASED ON DELIVERY TYPE
+  for (final e in assetDocIdToItemName.entries) {
+    try {
+      final snap = await _db.doc('assets/${e.key}').get();
+      if (!snap.exists) continue;
+
+      final a = snap.data()!;
+      final status = (a['status'] ?? '').toString().toLowerCase();
+
+      // 🔑 DELIVERY-TYPE AWARE FILTERING
+      if (deliveryType == 'pickup' && status == 'out_for_rental') {
+        // pickup: already checked out
+        continue;
+      }
+
+      if (deliveryType == 'return' && status == 'in_stock') {
+        // return: already returned
+        continue;
+      }
+
+      expected.add({
+        'assetDocId': e.key,
+        'assetId': (a['assetId'] ?? '').toString(),
+        'itemName': e.value,
+      });
+    } catch (_) {}
+  }
+
+  return expected;
+}
+
 }
