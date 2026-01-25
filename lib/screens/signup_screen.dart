@@ -30,84 +30,142 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Future<void> _onSubmit() async {
-    FocusScope.of(context).unfocus();
-    setState(() { _error = null; });
+  FocusScope.of(context).unfocus();
+  setState(() {
+    _error = null;
+  });
 
-    final name = _name.text.trim();
-    final email = _email.text.trim().toLowerCase();
-    final pass = _pass.text;
+  final name = _name.text.trim();
+  final email = _email.text.trim().toLowerCase();
+  final pass = _pass.text;
 
-    if (name.isEmpty) { setState(() => _error = 'Please enter your name.'); return; }
-    if (email.isEmpty) { setState(() => _error = 'Please enter your email.'); return; }
-    if (pass.length < 6) { setState(() => _error = 'Password must be at least 6 characters.'); return; }
+  if (name.isEmpty) {
+    setState(() => _error = 'Please enter your name.');
+    return;
+  }
+  if (email.isEmpty) {
+    setState(() => _error = 'Please enter your email.');
+    return;
+  }
+  if (pass.length < 6) {
+    setState(() => _error = 'Password must be at least 6 characters.');
+    return;
+  }
 
-    setState(() => _submitting = true);
-    try {
-      // 1) check drivers & marketing by loginEmail == email
-      final driverSnap = await _db
-          .collection('drivers')
-          .where('loginEmail', isEqualTo: email)
-          .limit(1)
-          .get();
-      final isDriver = driverSnap.docs.isNotEmpty;
+  setState(() => _submitting = true);
 
-      final marketingSnap = await _db
-          .collection('marketing')
-          .where('loginEmail', isEqualTo: email)
-          .limit(1)
-          .get();
-      final isMarketing = marketingSnap.docs.isNotEmpty;
+  try {
+    // 1️⃣ Check drivers by loginEmail
+    final driverSnap = await _db
+        .collection('drivers')
+        .where('loginEmail', isEqualTo: email)
+        .limit(1)
+        .get();
+    final isDriver = driverSnap.docs.isNotEmpty;
 
-      // 2) create auth user
-      final cred = await _auth.createUserWithEmailAndPassword(email: email, password: pass);
+    // 2️⃣ Check marketing by loginEmail
+    final marketingSnap = await _db
+        .collection('marketing')
+        .where('loginEmail', isEqualTo: email)
+        .limit(1)
+        .get();
+    final isMarketing = marketingSnap.docs.isNotEmpty;
 
-      // 3) set displayName
-      await cred.user!.updateDisplayName(name);
+    // 3️⃣ Check staff (NURSE / CARETAKER) by loginEmail
+    final staffSnap = await _db
+        .collection('staff')
+        .where('loginEmail', isEqualTo: email)
+        .where('active', isEqualTo: true)
+        .limit(1)
+        .get();
+    final isStaff = staffSnap.docs.isNotEmpty;
 
-      // 4) create /users/{uid} with derived role
-      final role = isDriver ? 'driver' : (isMarketing ? 'marketing' : 'sales');
-      await _db.collection('users').doc(cred.user!.uid).set({
-        'name': name,
-        'email': email,
-        'role': role,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    // 🚫 Block signup if email not created by admin
+    if (!isDriver && !isMarketing && !isStaff) {
+      throw Exception(
+        'No account found for this email. Please contact admin.',
+      );
+    }
 
-      // 5) backfill authUid to domain doc
-      if (isDriver) {
-        final id = driverSnap.docs.first.id;
-        await _db.collection('drivers').doc(id).set({
-          'authUid': cred.user!.uid,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-      if (isMarketing) {
-        final id = marketingSnap.docs.first.id;
-        await _db.collection('marketing').doc(id).set({
-          'authUid': cred.user!.uid,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
+    // 4️⃣ Create Firebase Auth user
+    final cred = await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: pass,
+    );
 
-      // 6) go back to login
-      if (mounted) {
-        Navigator.of(context).pop(); // return to LoginScreen
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Account created. Please log in.')),
-        );
-      }
-    } on FirebaseAuthException catch (e) {
-      String msg = 'Something went wrong. Please try again.';
-      if (e.code == 'email-already-in-use') msg = 'That email is already in use.';
-      if (e.code == 'invalid-email') msg = 'Please enter a valid email address.';
-      if (e.code == 'weak-password') msg = 'Password is too weak (min 6 characters).';
-      setState(() => _error = msg);
-    } catch (e) {
-      setState(() => _error = 'Unexpected error: $e');
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+    // 5️⃣ Set display name
+    await cred.user!.updateDisplayName(name);
+
+    // 6️⃣ Decide role
+    final role = isDriver
+        ? 'driver'
+        : isMarketing
+            ? 'marketing'
+            : 'staff';
+
+    // 7️⃣ Create /users/{uid}
+    await _db.collection('users').doc(cred.user!.uid).set({
+      'name': name,
+      'email': email,
+      'role': role,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    // 8️⃣ Backfill authUid to DRIVER doc
+    if (isDriver) {
+      final id = driverSnap.docs.first.id;
+      await _db.collection('drivers').doc(id).set({
+        'authUid': cred.user!.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // 9️⃣ Backfill authUid to MARKETING doc
+    if (isMarketing) {
+      final id = marketingSnap.docs.first.id;
+      await _db.collection('marketing').doc(id).set({
+        'authUid': cred.user!.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // 🔟 Backfill authUid to STAFF doc (NURSE)
+    if (isStaff) {
+      final id = staffSnap.docs.first.id;
+      await _db.collection('staff').doc(id).set({
+        'authUid': cred.user!.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    // 1️⃣1️⃣ Go back to login
+    if (mounted) {
+      Navigator.of(context).pop(); // back to LoginScreen
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account created. Please log in.'),
+        ),
+      );
+    }
+  } on FirebaseAuthException catch (e) {
+    String msg = 'Something went wrong. Please try again.';
+    if (e.code == 'email-already-in-use') {
+      msg = 'That email is already in use.';
+    } else if (e.code == 'invalid-email') {
+      msg = 'Please enter a valid email address.';
+    } else if (e.code == 'weak-password') {
+      msg = 'Password is too weak (min 6 characters).';
+    }
+    setState(() => _error = msg);
+  } catch (e) {
+    setState(() => _error = e.toString());
+  } finally {
+    if (mounted) {
+      setState(() => _submitting = false);
     }
   }
+}
+
 
   @override
   Widget build(BuildContext context) {

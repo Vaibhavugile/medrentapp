@@ -11,9 +11,12 @@ class AuthService {
 
   Future<void> signOut() => _auth.signOut();
 
-  // Email fallback
+  // Email login
   Future<UserCredential> signInWithEmail(String email, String pass) {
-    return _auth.signInWithEmailAndPassword(email: email, password: pass);
+    return _auth.signInWithEmailAndPassword(
+      email: email,
+      password: pass,
+    );
   }
 
   // Phone OTP
@@ -32,7 +35,10 @@ class AuthService {
     );
   }
 
-  Future<UserCredential> signInWithSmsCode(String verificationId, String code) {
+  Future<UserCredential> signInWithSmsCode(
+    String verificationId,
+    String code,
+  ) {
     final cred = PhoneAuthProvider.credential(
       verificationId: verificationId,
       smsCode: code,
@@ -40,37 +46,69 @@ class AuthService {
     return _auth.signInWithCredential(cred);
   }
 
+  // -------------------- ROLE RESOLUTION (NEW) --------------------
+  /// Determines the logged-in user's role using Firestore.
+  /// Order matters: Driver → Marketing → Staff (Nurse/Caretaker)
+  Future<String> resolveUserRole() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null || uid.isEmpty) {
+      throw Exception('User not logged in');
+    }
+
+    // 1️⃣ DRIVER
+    final driverDoc = await _db.collection('drivers').doc(uid).get();
+    if (driverDoc.exists) {
+      if (driverDoc.data()?['active'] == false) {
+        throw Exception('Driver account is inactive');
+      }
+      return 'driver';
+    }
+
+    // 2️⃣ MARKETING
+    final marketingDoc = await _db.collection('marketing').doc(uid).get();
+    if (marketingDoc.exists) {
+      if (marketingDoc.data()?['active'] == false) {
+        throw Exception('Marketing account is inactive');
+      }
+      return 'marketing';
+    }
+
+    // 3️⃣ STAFF (NURSE / CARETAKER)
+    final staffDoc = await _db.collection('staff').doc(uid).get();
+    if (staffDoc.exists) {
+      if (staffDoc.data()?['active'] == false) {
+        throw Exception('Staff account is inactive');
+      }
+      return 'staff';
+    }
+
+    // 🚫 No role found
+    throw Exception('No role assigned to this account');
+  }
+
   // -------------------- FCM device token sync --------------------
-  /// Saves this device's FCM token to the driver's Firestore doc so the backend
-  /// can notify the correct (last logged-in) phone on assignment.
-  ///
-  /// If [driverId] is omitted, the current FirebaseAuth UID is used.
+  /// Saves this device's FCM token to the DRIVER Firestore doc.
+  /// (Staff/Marketing tokens can be added later if needed.)
   Future<void> syncDeviceToken({String? driverId}) async {
-    // Resolve driver id
     final uid = driverId ?? _auth.currentUser?.uid;
     if (uid == null || uid.isEmpty) {
-      // Not logged in yet; nothing to do
       return;
     }
 
     final messaging = FirebaseMessaging.instance;
 
-    // iOS permission prompt (Android is auto-granted).
-    // Safe to call on Android too; it no-ops there.
     await messaging.requestPermission();
 
-    // Current token
     final token = await messaging.getToken();
 
     if (token != null && token.isNotEmpty) {
       await _db.doc('drivers/$uid').set({
-        'lastFcmToken': token,                          // use this to hit last phone only
-        'fcmTokens': FieldValue.arrayUnion([token]),    // or notify all devices if you prefer
+        'lastFcmToken': token,
+        'fcmTokens': FieldValue.arrayUnion([token]),
         'lastActiveAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     }
 
-    // Keep Firestore up to date when FCM rotates the token
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
       if (newToken.isEmpty) return;
       await _db.doc('drivers/$uid').set({

@@ -73,50 +73,68 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   /// If marketing, resolve the true docId by authUid. If it differs
   /// from what we received, switch to it and restart the location service.
-  Future<void> _resolveMarketingIdIfNeeded() async {
-    if (widget.collectionRoot != 'marketing') return;
+Future<void> _resolveMarketingIdIfNeeded() async {
+  try {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
 
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) return;
+    final db = FirebaseFirestore.instance;
+    String? resolved;
 
-      final db = FirebaseFirestore.instance;
-      // First try marketing/{uid} if it exists and active
+    // ================= MARKETING (EXISTING LOGIC, UNCHANGED) =================
+    if (widget.collectionRoot == 'marketing') {
       final byId = await db.collection('marketing').doc(uid).get();
-      String? resolved;
       if (byId.exists && (byId.data()?['active'] == true)) {
         resolved = byId.id;
       } else {
-        // Else find by authUid
         final q = await db
             .collection('marketing')
             .where('authUid', isEqualTo: uid)
             .limit(1)
             .get();
-        if (q.docs.isNotEmpty && (q.docs.first.data()['active'] == true)) {
+
+        if (q.docs.isNotEmpty && q.docs.first.data()['active'] == true) {
           resolved = q.docs.first.id;
         }
       }
-
-      if (resolved != null &&
-          resolved.isNotEmpty &&
-          resolved != _effectiveUserId) {
-        // Update effective id and restart location service with the correct id
-        _effectiveUserId = resolved;
-        // Recreate the LocationService with the resolved id
-        _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
-        // If we were already tracking, restart so the isolate gets the new id
-        if (tracking) {
-          try {
-            await _loc?.stop();
-          } catch (_) {}
-          await _loc?.start();
-        }
-      }
-    } catch (_) {
-      // ignore resolution errors; we’ll keep using widget.userId
     }
+
+    // ================= STAFF / NURSE (NEW, SAME PATTERN) =================
+    if (widget.collectionRoot == 'staff') {
+      final q = await db
+          .collection('staff')
+          .where('authUid', isEqualTo: uid)
+          .where('active', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      if (q.docs.isNotEmpty) {
+        resolved = q.docs.first.id;
+      }
+    }
+
+    // ================= APPLY RESOLUTION =================
+    if (resolved != null &&
+        resolved.isNotEmpty &&
+        resolved != _effectiveUserId) {
+      _effectiveUserId = resolved;
+
+      // recreate LocationService with correct docId
+      _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
+
+      // restart tracking if already running
+      if (tracking) {
+        try {
+          await _loc?.stop();
+        } catch (_) {}
+        await _loc?.start();
+      }
+    }
+  } catch (_) {
+    // silent fail → fallback keeps app working
   }
+}
+
 
   Future<void> _load() async {
     setState(() => loading = true);
