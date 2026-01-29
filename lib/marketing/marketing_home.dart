@@ -10,38 +10,66 @@ class MarketingHome extends StatefulWidget {
   final String userName;
   const MarketingHome({super.key, required this.userId, required this.userName});
 
+
+
   @override
   State<MarketingHome> createState() => _MarketingHomeState();
 }
 
 class _MarketingHomeState extends State<MarketingHome> {
   int _tab = 0;
+  late final List<Widget> _pages;
+@override
+void initState() {
+  super.initState();
+  _pages = [
+    TodayScreen(userId: widget.userId, userName: widget.userName),
+    MarketingVisitsScreen(userId: widget.userId, userName: widget.userName),
+    LeadsScreen(userId: widget.userId, userName: widget.userName),
+    AttendanceScreen(
+      userId: widget.userId,
+      userName: widget.userName,
+      collectionRoot: 'marketing',
+    ),
+  ];
+}
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      TodayScreen(userId: widget.userId, userName: widget.userName),
-      MarketingVisitsScreen(userId: widget.userId, userName: widget.userName),
-      LeadsScreen(userId: widget.userId, userName: widget.userName),
-      AttendanceScreen(
-        userId: widget.userId,
-        userName: widget.userName,
-        collectionRoot: 'marketing', // <-- IMPORTANT
-      ),
-    ];
+    
 
     return Scaffold(
-      body: pages[_tab],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.today), label: 'Today'),
-          NavigationDestination(icon: Icon(Icons.place_outlined), label: 'Visits'),
-          NavigationDestination(icon: Icon(Icons.leaderboard_outlined), label: 'Leads'),
-          NavigationDestination(icon: Icon(Icons.access_time), label: 'Attendance'),
-        ],
-      ),
-    );
+  appBar: AppBar(
+    title: const Text('Marketing Dashboard'),
+  ),
+
+  body: _pages[_tab],
+
+ bottomNavigationBar: BottomNavigationBar(
+  currentIndex: _tab,
+  onTap: (i) => setState(() => _tab = i),
+  type: BottomNavigationBarType.fixed,
+  items: const [
+    BottomNavigationBarItem(
+      icon: Icon(Icons.today),
+      label: 'Today',
+    ),
+    BottomNavigationBarItem(
+      icon: Icon(Icons.place),
+      label: 'Visits',
+    ),
+    BottomNavigationBarItem(
+      icon: Icon(Icons.leaderboard),
+      label: 'Leads',
+    ),
+    BottomNavigationBarItem(
+      icon: Icon(Icons.fingerprint),
+      label: 'Attendance',
+    ),
+  ],
+),
+
+);
+
   }
 }
