@@ -166,7 +166,7 @@ Future<void> _routeAfterLogin(BuildContext context) async {
 
   // ================= DRIVER (UNCHANGED) =================
 
-  await _syncDriverDeviceToken(uid);
+  // await _syncDriverDeviceToken(uid);
 
   if (!mounted) return;
   Navigator.pushReplacement(

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'nurse_home_screen.dart';
+import 'nurse_orders_screen.dart';
 import '../screens/attendance_screen.dart';
 
 class NurseHomeShell extends StatefulWidget {
@@ -19,17 +22,20 @@ class NurseHomeShell extends StatefulWidget {
 
 class _NurseHomeShellState extends State<NurseHomeShell> {
   int _index = 0;
-
   late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
 
-    _pages = [
-      const NurseHomeScreen(),
+    // 🔔 Sync FCM token for LAST LOGGED-IN DEVICE
+    _syncNurseDeviceToken(widget.staffId);
 
-      // ✅ REUSED attendance screen (CORRECT ID)
+    _pages = [
+      NurseOrdersScreen(
+        staffId: widget.staffId,
+      ),
+
       AttendanceScreen(
         userId: widget.staffId,      // ✅ STAFF DOC ID
         userName: widget.staffName,  // ✅ REAL NAME
@@ -39,6 +45,47 @@ class _NurseHomeShellState extends State<NurseHomeShell> {
       const _Placeholder(title: 'Salary'),
       const _Placeholder(title: 'Profile'),
     ];
+  }
+
+  /// =======================================================
+  /// 🔔 FCM TOKEN SYNC (SAME PATTERN AS DRIVER)
+  /// =======================================================
+  Future<void> _syncNurseDeviceToken(String staffId) async {
+    try {
+      final messaging = FirebaseMessaging.instance;
+
+      // iOS permission (safe on Android too)
+      await messaging.requestPermission();
+
+      final token = await messaging.getToken();
+      if (token == null || token.isEmpty) return;
+
+      // ✅ Save LAST LOGGED-IN DEVICE
+      await FirebaseFirestore.instance
+          .collection('staff')
+          .doc(staffId)
+          .set({
+            'lastFcmToken': token,
+            'fcmTokens': FieldValue.arrayUnion([token]),
+            'lastActiveAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      // 🔁 Handle token refresh automatically
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        if (newToken.isEmpty) return;
+
+        await FirebaseFirestore.instance
+            .collection('staff')
+            .doc(staffId)
+            .set({
+              'lastFcmToken': newToken,
+              'fcmTokens': FieldValue.arrayUnion([newToken]),
+              'lastActiveAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+      });
+    } catch (_) {
+      // ❌ Silent fail – NEVER block UI
+    }
   }
 
   @override
@@ -71,6 +118,10 @@ class _NurseHomeShellState extends State<NurseHomeShell> {
     );
   }
 }
+
+/// =======================================================
+/// PLACEHOLDER PAGES
+/// =======================================================
 
 class _Placeholder extends StatelessWidget {
   final String title;

@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../services/delivery_service.dart';
 import '../services/inventory_service.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 
 class TasksScreen extends StatefulWidget {
   final String driverId;
@@ -77,20 +78,51 @@ bool _isReturn(Map<String, dynamic> d) {
     }).toList();
   }
 
-  Map<String, List<Map<String, dynamic>>> get _grouped {
-    final init = {
-      for (final s in DeliveryService.stages) s: <Map<String, dynamic>>[],
-      'other': <Map<String, dynamic>>[],
-    };
-    for (final d in _filtered) {
-      final o = (d['order'] ?? {}) as Map<String, dynamic>;
-      final s = ((d['status'] ?? o['deliveryStatus'] ?? 'assigned')
-          .toString()
-          .toLowerCase());
-      (init[s] ?? init['other']!).add(d);
-    }
-    return init;
+  int _tsValue(dynamic v) {
+  if (v is Timestamp) return v.millisecondsSinceEpoch;
+  if (v is int) return v;
+  if (v is String) {
+    final d = DateTime.tryParse(v);
+    if (d != null) return d.millisecondsSinceEpoch;
   }
+  return 0;
+}
+
+
+  Map<String, List<Map<String, dynamic>>> get _grouped {
+  final init = {
+    for (final s in DeliveryService.stages) s: <Map<String, dynamic>>[],
+    'other': <Map<String, dynamic>>[],
+  };
+
+  for (final d in _filtered) {
+    final o = (d['order'] ?? {}) as Map<String, dynamic>;
+    final s = ((d['status'] ?? o['deliveryStatus'] ?? 'assigned')
+        .toString()
+        .toLowerCase());
+    (init[s] ?? init['other']!).add(d);
+  }
+
+  // 🔽 SORT EACH GROUP: MOST RECENT FIRST
+  for (final list in init.values) {
+    list.sort((a, b) {
+      final aTs = _tsValue(
+        a['expectedStartDate'] ??
+        a['updatedAt'] ??
+        a['createdAt'],
+      );
+      final bTs = _tsValue(
+        b['expectedStartDate'] ??
+        b['updatedAt'] ??
+        b['createdAt'],
+      );
+      return bTs.compareTo(aTs); // DESC
+    });
+  }
+
+  return init;
+}
+
 
   // === Stage update with optional confirmation ===
   Future<void> _updateStage({
@@ -925,6 +957,8 @@ Container(
               address: address,
               expectedStart: expectedStart,
               driverId: widget.driverId,
+              phone: o['customerPhone']?.toString(),
+              isReturn: _isReturn(d),
               onOpen: () => _openDetails(d),
               actions: _Actions(
                 status: status,
@@ -973,29 +1007,28 @@ Container(
   }
 
   String _fmtTS(dynamic at) {
-    if (at is Timestamp) return at.toDate().toLocal().toString();
-    if (at is int) {
-      return DateTime.fromMillisecondsSinceEpoch(at).toLocal().toString();
-    }
-    if (at is String) {
-      final d = DateTime.tryParse(at);
-      if (d != null) return d.toLocal().toString();
-    }
-    return '—';
-  }
+  return _fmtStaticTS(at);
+}
+
 }
 
 String _fmtStaticTS(dynamic at) {
-  if (at is Timestamp) return at.toDate().toLocal().toString();
-  if (at is int) {
-    return DateTime.fromMillisecondsSinceEpoch(at).toLocal().toString();
+  DateTime? dt;
+
+  if (at is Timestamp) {
+    dt = at.toDate();
+  } else if (at is int) {
+    dt = DateTime.fromMillisecondsSinceEpoch(at);
+  } else if (at is String) {
+    dt = DateTime.tryParse(at);
   }
-  if (at is String) {
-    final d = DateTime.tryParse(at);
-    if (d != null) return d.toLocal().toString();
-  }
-  return '—';
+
+  if (dt == null) return '—';
+
+  final local = dt.toLocal();
+  return DateFormat('dd MMM yyyy • hh:mm a').format(local);
 }
+
 
 class _TaskCard extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -1006,6 +1039,10 @@ class _TaskCard extends StatelessWidget {
   final String driverId;
   final VoidCallback onOpen;
   final Widget actions;
+  final bool isReturn;
+  final String? phone;
+
+
 
   const _TaskCard({
     required this.data,
@@ -1016,6 +1053,8 @@ class _TaskCard extends StatelessWidget {
     required this.driverId,
     required this.onOpen,
     required this.actions,
+    required this.isReturn,
+    this.phone, // 👈 ADD
   });
 
   @override
@@ -1040,7 +1079,7 @@ class _TaskCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // 👤 CUSTOMER
-            Row(
+          Row(
   crossAxisAlignment: CrossAxisAlignment.start,
   children: [
     Expanded(
@@ -1052,19 +1091,49 @@ class _TaskCard extends StatelessWidget {
         ),
       ),
     ),
+    _TypeBadge(isReturn: isReturn),
+    const SizedBox(width: 6),
     _StatusBadge(status),
   ],
 ),
+
 
             const SizedBox(height: 4),
 
             // 📍 ADDRESS
             Text(
-              address,
-              style: const TextStyle(
-                color: Colors.black54,
-              ),
-            ),
+  address,
+  style: const TextStyle(
+    color: Colors.black54,
+  ),
+),
+
+if (phone != null && phone!.isNotEmpty) ...[
+  const SizedBox(height: 6),
+  GestureDetector(
+    onTap: () async {
+      final uri = Uri.parse('tel:$phone');
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      }
+    },
+    child: Row(
+      children: [
+        const Icon(Icons.call, size: 16, color: Colors.green),
+        const SizedBox(width: 6),
+        Text(
+          phone!,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Colors.green,
+          ),
+        ),
+      ],
+    ),
+  ),
+],
+
 
             const SizedBox(height: 10),
 
@@ -1140,6 +1209,38 @@ class _StatusBadge extends StatelessWidget {
         fg = Colors.grey;
         label = status;
     }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: fg,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+class _TypeBadge extends StatelessWidget {
+  final bool isReturn;
+
+  const _TypeBadge({required this.isReturn});
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = isReturn
+        ? Colors.deepPurple.withOpacity(0.12)
+        : Colors.teal.withOpacity(0.12);
+
+    final fg = isReturn ? Colors.deepPurple : Colors.teal;
+
+    final label = isReturn ? 'Return' : 'Pickup';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

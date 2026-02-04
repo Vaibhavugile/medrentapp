@@ -396,7 +396,7 @@ Future<void> tryCompleteReturn({
     print('🏁 [RETURN] Completing return delivery');
 
     tx.update(deliveryRef, {
-      'status': 'completed',
+      'status': 'in_transit',
       'leaderDriverId': leaderDriverId,
       'returnedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),

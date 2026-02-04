@@ -9,6 +9,7 @@ import '../services/driver_service.dart';
 import 'attendance_screen.dart';
 import 'link_profile_screen.dart';
 import 'tasks_screen.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
@@ -31,6 +32,40 @@ late List<Widget> _pages;
     super.initState();
     resolve();
   }
+
+Future<void> _syncDriverDeviceToken(String driverId) async {
+  try {
+    final messaging = FirebaseMessaging.instance;
+
+    await messaging.requestPermission();
+
+    final token = await messaging.getToken();
+    if (token == null || token.isEmpty) return;
+
+    await FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(driverId) // ✅ BUSINESS DRIVER DOC ID
+        .set({
+          'lastFcmToken': token,
+          'fcmTokens': FieldValue.arrayUnion([token]),
+          'lastActiveAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      if (newToken.isEmpty) return;
+      await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(driverId)
+          .set({
+            'lastFcmToken': newToken,
+            'fcmTokens': FieldValue.arrayUnion([newToken]),
+            'lastActiveAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+    });
+  } catch (_) {
+    // silent fail – do NOT block UI
+  }
+}
 
   Future<void> resolve() async {
     final user = _auth.currentUser;
@@ -108,6 +143,9 @@ late List<Widget> _pages;
     // 4) Driver flow
     final d = await _drvSvc.findDriverForUser(user);
     if (!mounted) return;
+    if (d != null) {
+  _syncDriverDeviceToken(d.id);
+}
     setState(() {
   driver = d;
   loading = false;
