@@ -23,7 +23,7 @@
 
     <application
         android:name="${applicationName}"
-        android:label="MedRent"
+        android:label="BMM Workforce"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
 

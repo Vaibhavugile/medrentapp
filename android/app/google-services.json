@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:406243550899:android:bb30a88739a20082c7b2c6",
+        "android_client_info": {
+          "package_name": "com.bmmworkforce.driverapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDohasuigtUvY_LbLBWOg6r0w40z7krCB0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:406243550899:android:59d8bf6d07b30fc8c7b2c6",
         "android_client_info": {
           "package_name": "com.example.driver_app"
