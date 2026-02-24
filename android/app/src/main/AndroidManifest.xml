@@ -26,6 +26,11 @@
         android:label="BMM Workforce"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
+        
+        <meta-data
+            android:name="isMonitoringTool"
+            android:value="true" />
+        
 
         <activity
             android:name=".MainActivity"

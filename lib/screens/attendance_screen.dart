@@ -9,7 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart'; // ✅ compress
 import 'package:path_provider/path_provider.dart'; // ✅ temp dir
 import 'package:path/path.dart' as p; // ✅ file paths
-
+import 'package:geolocator/geolocator.dart';
 import '../services/attendance_service.dart';
 import '../services/location_service.dart';
 import 'attendance_camera_screen.dart'; // ✅ new screen
@@ -134,7 +134,62 @@ Future<void> _resolveMarketingIdIfNeeded() async {
     // silent fail → fallback keeps app working
   }
 }
+Future<bool> _showLocationDisclosure() async {
+  return await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AlertDialog(
+          title: const Text("Location Tracking Disclosure"),
+          content: const Text(
+            "This app collects location data to enable real-time driver tracking "
+            "during active work sessions (after Check-in), even when the app is "
+            "closed or not in use. This data is used by administrators to monitor "
+            "job progress and workforce activity."
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Deny"),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text("Allow"),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+}
 
+Future<void> _showBackgroundPermissionGuide() async {
+  await showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      title: const Text("Enable Background Location"),
+      content: const Text(
+        "To enable attendance tracking, please select "
+        "'Allow all the time' in the next screen.\n\n"
+        "This allows the app to track your location "
+        "during active work sessions even when the app "
+        "is closed."
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
+        FilledButton(
+          onPressed: () {
+            Navigator.pop(context);
+            openAppSettings(); // Opens app settings
+          },
+          child: const Text("Open Settings"),
+        ),
+      ],
+    ),
+  );
+}
 
   Future<void> _load() async {
     setState(() => loading = true);
@@ -289,70 +344,115 @@ Future<void> _resolveMarketingIdIfNeeded() async {
   }
 
   Future<void> checkIn() async {
-    debugPrint('[checkIn] canCheckIn=$canCheckIn mounted=$mounted');
-    if (!canCheckIn || !mounted) return;
+  debugPrint('[checkIn] canCheckIn=$canCheckIn mounted=$mounted');
+  if (!canCheckIn || !mounted) return;
 
-    if (_attendanceImage == null) {
-      showSnack(context, 'Please capture a photo before checking in');
+  if (_attendanceImage == null) {
+    showSnack(context, 'Please capture a photo before checking in');
+    return;
+  }
+
+  final ok = await showConfirm(context, 'Confirm check-in now?');
+  if (!ok) return;
+
+  setState(() => saving = true);
+  try {
+    // 🔔 Request notification permission (Android 13+)
+    try {
+      await Permission.notification.request();
+    } catch (_) {}
+
+    // 🛑 STEP 1 — Show Prominent Disclosure (REQUIRED BY GOOGLE)
+    final disclosureAccepted = await _showLocationDisclosure();
+    if (!disclosureAccepted) {
+      if (mounted) {
+        showSnack(context, "Location permission required to check-in.");
+      }
+      setState(() => saving = false);
       return;
     }
 
-    final ok = await showConfirm(context, 'Confirm check-in now?');
-    if (!ok) return;
+    // 📍 STEP 2 — Request Background Location Permission
+   try {
+  final bgGranted = await _loc!.requestBgPermission();
 
-    setState(() => saving = true);
-    try {
-      try {
-        await Permission.notification.request();
-      } catch (_) {}
+  if (!bgGranted && mounted) {
+    // 🔔 Show instruction dialog before opening settings
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: const Text("Enable Background Location"),
+        content: const Text(
+          "To enable attendance tracking, please select "
+          "'Allow all the time' in the next screen.\n\n"
+          "This allows the app to track your location "
+          "during active work sessions even when the app "
+          "is closed."
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Geolocator.openAppSettings();
+            },
+            child: const Text("Open Settings"),
+          ),
+        ],
+      ),
+    );
 
-      try {
-        final bgGranted = await _loc!.requestBgPermission();
-        if (!bgGranted && mounted) {
-          showSnack(context,
-              "Please allow 'Location • Always' for continuous tracking.");
-        }
-      } catch (_) {}
-
-      final now = DateTime.now();
-
-      debugPrint('[checkIn] Compressing image...');
-      final compressed = await _compressAttendanceImage(_attendanceImage!);
-
-      debugPrint('[checkIn] Uploading image...');
-      final url = await _att.uploadAttendanceImage(
-        imageFile: compressed,
-        driverId: _effectiveUserId,
-        timestamp: now,
-        type: 'check-in',
-        // date not needed here; now maps to todayISO()
-      );
-      debugPrint('[checkIn] Image uploaded. URL=$url');
-
-      await _att.checkIn(
-        _effectiveUserId,
-        widget.userName,
-        note: note,
-        uid: FirebaseAuth.instance.currentUser?.uid,
-      );
-      debugPrint('[checkIn] Attendance doc updated');
-
-      setState(() {
-        _attendanceImage = null;
-      });
-
-      await _loc?.start();
-      await _load();
-      setState(() => tracking = true);
-      if (mounted) showSnack(context, 'Checked-in.');
-    } catch (e, st) {
-      debugPrint('[checkIn] ERROR: $e');
-      debugPrint('[checkIn] STACK: $st');
-      if (mounted) showSnack(context, 'Failed to check-in: $e');
-    } finally {
-      setState(() => saving = false);
-    }
+    setState(() => saving = false);
+    return;
   }
+} catch (_) {
+  setState(() => saving = false);
+  return;
+}
+
+    final now = DateTime.now();
+
+    debugPrint('[checkIn] Compressing image...');
+    final compressed = await _compressAttendanceImage(_attendanceImage!);
+
+    debugPrint('[checkIn] Uploading image...');
+    final url = await _att.uploadAttendanceImage(
+      imageFile: compressed,
+      driverId: _effectiveUserId,
+      timestamp: now,
+      type: 'check-in',
+    );
+    debugPrint('[checkIn] Image uploaded. URL=$url');
+
+    await _att.checkIn(
+      _effectiveUserId,
+      widget.userName,
+      note: note,
+      uid: FirebaseAuth.instance.currentUser?.uid,
+    );
+    debugPrint('[checkIn] Attendance doc updated');
+
+    setState(() {
+      _attendanceImage = null;
+    });
+
+    await _loc?.start();
+    await _load();
+    setState(() => tracking = true);
+
+    if (mounted) showSnack(context, 'Checked-in.');
+  } catch (e, st) {
+    debugPrint('[checkIn] ERROR: $e');
+    debugPrint('[checkIn] STACK: $st');
+    if (mounted) showSnack(context, 'Failed to check-in: $e');
+  } finally {
+    setState(() => saving = false);
+  }
+}
 
   Future<void> checkOut({int? shiftNumber}) async {
     if (!canCheckOut) return;

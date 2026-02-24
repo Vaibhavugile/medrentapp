@@ -33,16 +33,38 @@ class LocationService {
   }
 
   Future<bool> requestBgPermission() async {
-    var perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-    }
-    if (perm == LocationPermission.whileInUse) {
-      perm = await Geolocator.requestPermission();
-    }
-    return perm == LocationPermission.always;
+  // STEP 1: Ensure location services are enabled
+  final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  if (!serviceEnabled) {
+    await Geolocator.openLocationSettings();
+    return false;
   }
 
+  // STEP 2: Request foreground location first
+  var permission = await Geolocator.checkPermission();
+
+  if (permission == LocationPermission.denied) {
+    permission = await Geolocator.requestPermission();
+  }
+
+  if (permission == LocationPermission.denied ||
+      permission == LocationPermission.deniedForever) {
+    return false;
+  }
+
+  // If already always, we are good
+  if (permission == LocationPermission.always) {
+    return true;
+  }
+
+  // STEP 3: If only whileInUse, redirect to app settings
+  if (permission == LocationPermission.whileInUse) {
+    await Geolocator.openAppSettings();
+    return false;
+  }
+
+  return false;
+}
   Future<void> _startForegroundAndroid() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
 
