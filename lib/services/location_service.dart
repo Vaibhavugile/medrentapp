@@ -72,7 +72,7 @@ class LocationService {
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'medrent_driver_location',
         channelName: 'Location Tracking',
-        channelDescription: 'Tracking your route during duty.',
+        channelDescription:'Tracks location during active work sessions for attendance.',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
         iconData: const NotificationIconData(
@@ -99,10 +99,11 @@ class LocationService {
     final running = await FlutterForegroundTask.isRunningService;
     if (!running) {
       await FlutterForegroundTask.startService(
-        notificationTitle: 'Tracking in progress',
-        notificationText: 'Your trip is being recorded.',
-        callback: startCallback,
-      );
+  notificationTitle: 'Workforce Tracking Active',
+  notificationText:
+      'Location tracking is active during your work session.',
+  callback: startCallback,
+);
     } else {
       // If it was already running, just refresh data
       await FlutterForegroundTask.restartService();

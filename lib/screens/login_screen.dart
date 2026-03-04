@@ -88,7 +88,50 @@ class _LoginScreenState extends State<LoginScreen> {
       // non-fatal; don't block login flow
     }
   }
+Future<void> _forgotPassword() async {
+  final email = _email.text.trim();
 
+  if (email.isEmpty) {
+    _showMessage('Please enter your email address.');
+    return;
+  }
+
+  try {
+    await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+  } catch (_) {
+    // intentionally ignore errors (user-not-found etc)
+  }
+
+  if (!mounted) return;
+
+  _showMessage(
+    'If an account exists for this email, a password reset link has been sent.',
+    success: true,
+  );
+}
+void _showMessage(String message, {bool success = false}) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          Icon(
+            success ? Icons.check_circle : Icons.info_outline,
+            color: Colors.white,
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(message)),
+        ],
+      ),
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: success ? Colors.green : Colors.blueGrey,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      margin: const EdgeInsets.all(16),
+      duration: const Duration(seconds: 3),
+    ),
+  );
+}
 Future<void> _routeAfterLogin(BuildContext context) async {
   final uid = FirebaseAuth.instance.currentUser!.uid;
   final db = FirebaseFirestore.instance;
@@ -323,13 +366,7 @@ Future<void> _routeAfterLogin(BuildContext context) async {
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: TextButton(
-                                  onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Forgot password flow not implemented'),
-                                      ),
-                                    );
-                                  },
+                                  onPressed: _forgotPassword,
                                   child: const Text('Forgot password?'),
                                 ),
                               ),

@@ -141,10 +141,12 @@ Future<bool> _showLocationDisclosure() async {
         builder: (_) => AlertDialog(
           title: const Text("Location Tracking Disclosure"),
           content: const Text(
-            "This app collects location data to enable real-time driver tracking "
-            "during active work sessions (after Check-in), even when the app is "
-            "closed or not in use. This data is used by administrators to monitor "
-            "job progress and workforce activity."
+            "This app collects and transmits your location data to your employer "
+            "to enable workforce attendance monitoring and live job tracking "
+            "during active work sessions.\n\n"
+            "Location tracking starts only after you Check-in and continues even "
+            "when the app is closed or not in use.\n\n"
+            "Tracking stops automatically when you Check-out."
           ),
           actions: [
             TextButton(

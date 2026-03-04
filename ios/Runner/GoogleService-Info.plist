@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.driverApp</string>
+	<string>com.bmm.workforce</string>
 	<key>PROJECT_ID</key>
 	<string>medrent-5d771</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:406243550899:ios:72c2acd1ddee07b5c7b2c6</string>
+	<string>1:406243550899:ios:141fae6cbd28a68dc7b2c6</string>
 </dict>
 </plist>

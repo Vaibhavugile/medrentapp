@@ -170,6 +170,37 @@ class NurseOrderCard extends StatelessWidget {
     required this.status,
     required this.salary,
   });
+  Future<void> acceptOrder() async {
+  final snap = await FirebaseFirestore.instance
+      .collection('staffAssignments')
+      .where('staffId', isEqualTo: staffId)
+      .where('orderId', isEqualTo: orderId)
+      .limit(1)
+      .get();
+
+  if (snap.docs.isEmpty) return;
+
+  await snap.docs.first.reference.update({
+    'status': 'active',
+    'acceptedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+Future<void> rejectOrder() async {
+  final snap = await FirebaseFirestore.instance
+      .collection('staffAssignments')
+      .where('staffId', isEqualTo: staffId)
+      .where('orderId', isEqualTo: orderId)
+      .limit(1)
+      .get();
+
+  if (snap.docs.isEmpty) return;
+
+  await snap.docs.first.reference.update({
+    'status': 'cancelled',
+    'rejectedAt': FieldValue.serverTimestamp(),
+  });
+}
 
   Color get statusColor {
     switch (status) {
@@ -264,6 +295,35 @@ class NurseOrderCard extends StatelessWidget {
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              if (status == 'assigned') ...[
+  const SizedBox(height: 12),
+
+  Row(
+    children: [
+      Expanded(
+        child: ElevatedButton(
+          onPressed: acceptOrder,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.green,
+          ),
+          child: const Text("Accept"),
+        ),
+      ),
+
+      const SizedBox(width: 10),
+
+      Expanded(
+        child: OutlinedButton(
+          onPressed: rejectOrder,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.red,
+          ),
+          child: const Text("Reject"),
+        ),
+      ),
+    ],
+  ),
+]
             ],
           ),
         ),

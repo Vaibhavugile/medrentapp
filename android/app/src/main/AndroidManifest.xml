@@ -1,37 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.bmmworkforce.driverapp">
 
-    <!-- Permissions -->
+    <!-- ================= MONITORING TOOL DECLARATION (ROOT) ================= -->
+    <meta-data
+        android:name="isMonitoringTool"
+        android:value="enterprise_management"
+        tools:node="merge" />
+
+    <!-- ================= PERMISSIONS ================= -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Location -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- Background location (Android 10+) -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
-    <!-- Foreground service for background tracking -->
+
+    <!-- Foreground tracking -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+
+    <!-- Camera -->
     <uses-permission android:name="android.permission.CAMERA"/>
-<!-- Allow service to auto-restart on boot -->
+
+    <!-- Boot restart -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
-<!-- Android 13+ runtime notifications permission -->
-     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
-
+    <!-- ================= APPLICATION ================= -->
     <application
         android:name="${applicationName}"
         android:label="BMM Workforce"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">
-        
+
+        <!-- ================= MONITORING TOOL DECLARATION (APP LEVEL) ================= -->
         <meta-data
             android:name="isMonitoringTool"
-            android:value="true" />
-        
+            android:value="enterprise_management"
+            tools:node="merge" />
 
+        <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -40,31 +54,34 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
+
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
 
-        <!-- Flutter embedding v2 -->
+        <!-- Flutter embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Foreground service (flutter_foreground_task) -->
+        <!-- Foreground location service -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:exported="false"
             android:foregroundServiceType="location" />
 
-       <receiver
-    android:name="com.pravera.flutter_foreground_task.receiver.RebootBroadcastReceiver"
-    android:exported="false">
-  <intent-filter>
-    <action android:name="android.intent.action.BOOT_COMPLETED"/>
-    <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-  </intent-filter>
-</receiver>
+        <!-- Restart service on reboot -->
+        <receiver
+            android:name="com.pravera.flutter_foreground_task.receiver.RebootBroadcastReceiver"
+            android:exported="false">
+
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>
