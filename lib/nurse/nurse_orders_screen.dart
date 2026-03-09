@@ -2,11 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'nurse_order_details_screen.dart';
 
-/// =======================================================
-/// Nurse Orders Screen
-/// Shows orders assigned to the logged-in nurse
-/// =======================================================
-
 class NurseOrdersScreen extends StatefulWidget {
   final String staffId;
 
@@ -21,6 +16,7 @@ class NurseOrdersScreen extends StatefulWidget {
 
 class _NurseOrdersScreenState extends State<NurseOrdersScreen>
     with SingleTickerProviderStateMixin {
+
   late TabController _tabController;
 
   final List<String> _tabs = [
@@ -36,13 +32,8 @@ class _NurseOrdersScreenState extends State<NurseOrdersScreen>
     _tabController = TabController(length: _tabs.length, vsync: this);
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
   Query _buildQuery(String status) {
+
     final base = FirebaseFirestore.instance
         .collection('staffAssignments')
         .where('staffId', isEqualTo: widget.staffId);
@@ -58,12 +49,31 @@ class _NurseOrdersScreenState extends State<NurseOrdersScreen>
 
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
+
+      backgroundColor: const Color(0xffF5F7FB),
+
       appBar: AppBar(
+        elevation: 0,
         title: const Text('My Orders'),
         centerTitle: true,
+
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Color(0xff3B82F6),
+                Color(0xff60A5FA),
+              ],
+            ),
+          ),
+        ),
+
         bottom: TabBar(
           controller: _tabController,
+          indicatorColor: Colors.white,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
           tabs: const [
             Tab(text: 'All'),
             Tab(text: 'Assigned'),
@@ -72,24 +82,24 @@ class _NurseOrdersScreenState extends State<NurseOrdersScreen>
           ],
         ),
       ),
+
       body: TabBarView(
         controller: _tabController,
         children: _tabs.map((status) {
+
           return _OrdersList(
             staffId: widget.staffId,
             query: _buildQuery(status),
           );
+
         }).toList(),
       ),
     );
   }
 }
 
-/// =======================================================
-/// Orders List (Reusable for each tab)
-/// =======================================================
-
 class _OrdersList extends StatelessWidget {
+
   final String staffId;
   final Query query;
 
@@ -98,45 +108,71 @@ class _OrdersList extends StatelessWidget {
     required this.query,
   });
 
+  String formatDate(dynamic value) {
+
+    if (value == null) return "—";
+
+    if (value is Timestamp) {
+      final d = value.toDate();
+      return "${d.day}/${d.month}/${d.year}";
+    }
+
+    if (value is String) {
+      return value.split("T").first;
+    }
+
+    return value.toString();
+  }
+
   @override
   Widget build(BuildContext context) {
+
     return StreamBuilder<QuerySnapshot>(
+
       stream: query.snapshots(),
+
       builder: (context, snapshot) {
-        // Loading
+
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Empty
         if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
           return const Center(
-            child: Text(
-              'No orders found',
-              style: TextStyle(fontSize: 16),
-            ),
+            child: Text("No orders found"),
           );
         }
 
         final assignments = snapshot.data!.docs;
 
         return ListView.separated(
-          padding: const EdgeInsets.all(12),
+
+          padding: const EdgeInsets.all(16),
+
           itemCount: assignments.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
+
+          separatorBuilder: (_, __) => const SizedBox(height: 14),
+
           itemBuilder: (context, index) {
-            final doc = assignments[index];
-            final data = doc.data() as Map<String, dynamic>;
+
+            final data =
+                assignments[index].data() as Map<String, dynamic>;
 
             return NurseOrderCard(
+
               staffId: staffId,
-              orderId: data['orderId'],
-              orderNo: data['orderNo'] ?? 'Order',
-              startDate: data['startDate'] ?? '',
-              endDate: data['endDate'] ?? '',
-              shift: data['shift'] ?? 'day',
-              status: data['status'] ?? 'assigned',
+              orderId: data['orderId'] ?? "",
+              orderNo: data['orderNo'] ?? "Order",
+
+              startDate: formatDate(data['startDate']),
+              endDate: formatDate(data['endDate']),
+
+              shift: data['shift'] ?? "day",
+              status: data['status'] ?? "assigned",
+
               salary: data['amount'] ?? 0,
+              paidAmount: data['paidAmount'] ?? 0,
+              balanceAmount: data['balanceAmount'] ?? 0,
             );
           },
         );
@@ -145,19 +181,21 @@ class _OrdersList extends StatelessWidget {
   }
 }
 
-/// =======================================================
-/// Order Card Widget
-/// =======================================================
+class NurseOrderCard extends StatefulWidget {
 
-class NurseOrderCard extends StatelessWidget {
   final String staffId;
   final String orderId;
   final String orderNo;
+
   final String startDate;
   final String endDate;
+
   final String shift;
   final String status;
+
   final num salary;
+  final num paidAmount;
+  final num balanceAmount;
 
   const NurseOrderCard({
     super.key,
@@ -169,47 +207,78 @@ class NurseOrderCard extends StatelessWidget {
     required this.shift,
     required this.status,
     required this.salary,
+    required this.paidAmount,
+    required this.balanceAmount,
   });
+
+  @override
+  State<NurseOrderCard> createState() => _NurseOrderCardState();
+}
+
+class _NurseOrderCardState extends State<NurseOrderCard> {
+
+  bool loading = false;
+
   Future<void> acceptOrder() async {
-  final snap = await FirebaseFirestore.instance
-      .collection('staffAssignments')
-      .where('staffId', isEqualTo: staffId)
-      .where('orderId', isEqualTo: orderId)
-      .limit(1)
-      .get();
 
-  if (snap.docs.isEmpty) return;
+    setState(() => loading = true);
 
-  await snap.docs.first.reference.update({
-    'status': 'active',
-    'acceptedAt': FieldValue.serverTimestamp(),
-  });
-}
+    final snap = await FirebaseFirestore.instance
+        .collection('staffAssignments')
+        .where('staffId', isEqualTo: widget.staffId)
+        .where('orderId', isEqualTo: widget.orderId)
+        .limit(1)
+        .get();
 
-Future<void> rejectOrder() async {
-  final snap = await FirebaseFirestore.instance
-      .collection('staffAssignments')
-      .where('staffId', isEqualTo: staffId)
-      .where('orderId', isEqualTo: orderId)
-      .limit(1)
-      .get();
+    if (snap.docs.isNotEmpty) {
 
-  if (snap.docs.isEmpty) return;
+      await snap.docs.first.reference.update({
+        'status': 'active',
+        'acceptedAt': FieldValue.serverTimestamp(),
+      });
+    }
 
-  await snap.docs.first.reference.update({
-    'status': 'cancelled',
-    'rejectedAt': FieldValue.serverTimestamp(),
-  });
-}
+    setState(() => loading = false);
+  }
+
+  Future<void> rejectOrder() async {
+
+    setState(() => loading = true);
+
+    final snap = await FirebaseFirestore.instance
+        .collection('staffAssignments')
+        .where('staffId', isEqualTo: widget.staffId)
+        .where('orderId', isEqualTo: widget.orderId)
+        .limit(1)
+        .get();
+
+    if (snap.docs.isNotEmpty) {
+
+      await snap.docs.first.reference.update({
+        'status': 'cancelled',
+        'rejectedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    setState(() => loading = false);
+  }
 
   Color get statusColor {
-    switch (status) {
+
+    switch (widget.status) {
+
       case 'assigned':
         return Colors.orange;
+
       case 'active':
         return Colors.green;
+
       case 'completed':
         return Colors.blue;
+
+      case 'cancelled':
+        return Colors.red;
+
       default:
         return Colors.grey;
     }
@@ -217,113 +286,174 @@ Future<void> rejectOrder() async {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+
+    return Container(
+
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.05),
+            blurRadius: 12,
+            offset: const Offset(0,6),
+          )
+        ],
       ),
+
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+
+        borderRadius: BorderRadius.circular(18),
+
         onTap: () {
           Navigator.push(
             context,
             MaterialPageRoute(
               builder: (_) => NurseOrderDetailsScreen(
-                orderId: orderId,
-                staffId: staffId,
+                orderId: widget.orderId,
+                staffId: widget.staffId,
               ),
             ),
           );
         },
+
         child: Padding(
-          padding: const EdgeInsets.all(14),
+
+          padding: const EdgeInsets.all(18),
+
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+
             children: [
-              Text(
-                orderNo,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 6),
-
-              Text(
-                '$startDate → $endDate',
-                style: const TextStyle(color: Colors.grey),
-              ),
-
-              const SizedBox(height: 10),
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Chip(
-                    label: Text(
-                      shift.toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+
+                  Text(
+                    widget.orderNo,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
                     ),
                   ),
 
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 6),
+
                     decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.15),
+                      color: statusColor.withOpacity(.15),
                       borderRadius: BorderRadius.circular(20),
                     ),
+
                     child: Text(
-                      status.toUpperCase(),
+                      widget.status.toUpperCase(),
                       style: TextStyle(
                         color: statusColor,
                         fontWeight: FontWeight.bold,
-                        fontSize: 12,
                       ),
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
 
               Text(
-                'Salary: ₹ ${salary.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                ),
+                "${widget.startDate} → ${widget.endDate}",
+                style: const TextStyle(color: Colors.grey),
               ),
-              if (status == 'assigned') ...[
-  const SizedBox(height: 12),
 
-  Row(
-    children: [
-      Expanded(
-        child: ElevatedButton(
-          onPressed: acceptOrder,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.green,
-          ),
-          child: const Text("Accept"),
-        ),
-      ),
+              const SizedBox(height: 12),
 
-      const SizedBox(width: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
 
-      Expanded(
-        child: OutlinedButton(
-          onPressed: rejectOrder,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.red,
-          ),
-          child: const Text("Reject"),
-        ),
-      ),
-    ],
-  ),
-]
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 6),
+
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+
+                    child: Text(
+                      widget.shift.toUpperCase(),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                  ),
+
+                  Text(
+                    "₹${widget.salary}",
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  )
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+
+                  Text(
+                    "Paid ₹${widget.paidAmount}",
+                    style: const TextStyle(color: Colors.green),
+                  ),
+
+                  Text(
+                    "Balance ₹${widget.balanceAmount}",
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ],
+              ),
+
+              if (widget.status == "assigned") ...[
+
+                const SizedBox(height: 14),
+
+                Row(
+                  children: [
+
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: loading ? null : acceptOrder,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text("Accept"),
+                      ),
+                    ),
+
+                    const SizedBox(width: 10),
+
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: loading ? null : rejectOrder,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.red,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text("Reject"),
+                      ),
+                    ),
+                  ],
+                )
+              ]
             ],
           ),
         ),

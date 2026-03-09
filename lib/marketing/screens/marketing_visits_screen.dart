@@ -196,74 +196,191 @@ Future<void> _addVisit() async {
   await showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.transparent, // let inner sheet have rounded corners
+    backgroundColor: Colors.transparent,
     builder: (_) {
-      final kb = MediaQuery.of(context).viewInsets.bottom; // keyboard height
-      return Padding(
-        padding: EdgeInsets.only(bottom: kb), // 🧠 lift above keyboard
+      final kb = MediaQuery.of(context).viewInsets.bottom;
+
+      return AnimatedPadding(
+        duration: const Duration(milliseconds: 200),
+        padding: EdgeInsets.only(bottom: kb),
         child: DraggableScrollableSheet(
           expand: false,
-          initialChildSize: 0.7,
-          minChildSize: 0.4,
+          initialChildSize: 0.75,
+          minChildSize: 0.5,
           maxChildSize: 0.95,
           builder: (ctx, scrollController) {
-            return Material(
-              elevation: 6,
-              color: Theme.of(ctx).colorScheme.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            return Container(
+              decoration: BoxDecoration(
+                color: Theme.of(ctx).colorScheme.surface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    blurRadius: 20,
+                    color: Colors.black12,
+                  )
+                ],
+              ),
               child: SafeArea(
                 top: false,
                 child: ListView(
-                  controller: scrollController, // 👈 makes it scroll
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
                   children: [
+
+                    /// drag handle
                     Center(
                       child: Container(
-                        width: 40, height: 4,
-                        margin: const EdgeInsets.only(bottom: 12),
+                        width: 45,
+                        height: 5,
+                        margin: const EdgeInsets.only(bottom: 18),
                         decoration: BoxDecoration(
-                          color: Colors.black26,
-                          borderRadius: BorderRadius.circular(2),
+                          color: Colors.grey.shade400,
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                     ),
-                    Text('Add Visit', style: Theme.of(ctx).textTheme.titleLarge),
-                    const SizedBox(height: 8),
 
-                    TextField(controller: name, decoration: const InputDecoration(labelText: 'Customer name *')),
-                    const SizedBox(height: 8),
-                    TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone *')),
-                    const SizedBox(height: 8),
-                    TextField(controller: addr, decoration: const InputDecoration(labelText: 'Address'), maxLines: 2),
-                    const SizedBox(height: 8),
-                    TextField(controller: note, decoration: const InputDecoration(labelText: 'Purpose / Notes'), maxLines: 2),
+                    /// title
+                    Row(
+                      children: [
+                        const Icon(Icons.storefront_outlined, size: 26),
+                        const SizedBox(width: 10),
+                        Text(
+                          "New Customer Visit",
+                          style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 22),
+
+                    /// name
+                    TextField(
+                      controller: name,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: InputDecoration(
+                        labelText: "Customer Name *",
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+
                     const SizedBox(height: 16),
 
-                    Row(children: [
-                      const Spacer(),
-                      FilledButton(
-                        onPressed: () async {
-                          if (name.text.trim().isEmpty || phone.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Name & phone required'), backgroundColor: Colors.red),
-                            );
-                            return;
-                          }
-                          Navigator.pop(context);
-                          await _svc.createVisit(
-                            assignedToId: widget.userId,
-                            assignedToName: widget.userName,
-                            createdByUid: widget.userId,
-                            createdByName: widget.userName,
-                            customerName: name.text.trim(),
-                            phone: phone.text.trim(),
-                            address: addr.text.trim(),
-                            purpose: note.text.trim(),
-                          );
-                        },
-                        child: const Text('Create'),
+                    /// phone
+                    TextField(
+                      controller: phone,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: "Phone Number *",
+                        prefixIcon: const Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
                       ),
-                    ]),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    /// address
+                    TextField(
+                      controller: addr,
+                      maxLines: 2,
+                      decoration: InputDecoration(
+                        labelText: "Address",
+                        prefixIcon: const Icon(Icons.location_on_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    /// notes
+                    TextField(
+                      controller: note,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: "Purpose / Notes",
+                        prefixIcon: const Icon(Icons.notes_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 28),
+
+                    /// buttons
+                    Row(
+                      children: [
+
+                        /// cancel
+                        Expanded(
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            child: const Text("Cancel"),
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        /// create
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: const Icon(Icons.check),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            label: const Text("Create Visit"),
+                            onPressed: () async {
+                              if (name.text.trim().isEmpty ||
+                                  phone.text.trim().isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content:
+                                        Text('Customer name & phone required'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                                return;
+                              }
+
+                              Navigator.pop(context);
+
+                              await _svc.createVisit(
+                                assignedToId: widget.userId,
+                                assignedToName: widget.userName,
+                                createdByUid: widget.userId,
+                                createdByName: widget.userName,
+                                customerName: name.text.trim(),
+                                phone: phone.text.trim(),
+                                address: addr.text.trim(),
+                                purpose: note.text.trim(),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
@@ -274,7 +391,6 @@ Future<void> _addVisit() async {
     },
   );
 }
-
 
 
   @override
