@@ -56,13 +56,13 @@
 	<!-- ============================= -->
 
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app requires location access to track driver activity during active work sessions.</string>
+<string>This app uses location to support active delivery tasks and route progress while the driver is working.</string>
 
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>This app requires continuous location access to enable real-time workforce tracking and delivery monitoring.</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>This app requires background location to monitor active delivery routes and task progress during ongoing deliveries.</string>
 
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>This app tracks location in the background to ensure accurate delivery and workforce monitoring.</string>
+<key>NSLocationAlwaysUsageDescription</key>
+<string>Location is used during active deliveries to ensure accurate route tracking and task completion.</string>
 
 	<!-- Enable Background Location -->
 	<key>UIBackgroundModes</key>
