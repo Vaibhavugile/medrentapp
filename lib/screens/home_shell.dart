@@ -10,7 +10,7 @@ import 'attendance_screen.dart';
 import 'link_profile_screen.dart';
 import 'tasks_screen.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-
+import 'attendance_history_screen.dart';
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -162,6 +162,10 @@ Future<void> _syncDriverDeviceToken(String driverId) async {
       userName: driverName,
       collectionRoot: 'drivers',
     ),
+     AttendanceHistoryScreen(
+    userId: d.id,
+    collectionRoot: 'drivers',
+  ),
     const _Placeholder(title: 'Profile'),
   ];
 });
@@ -262,6 +266,10 @@ Widget _buildContent(BuildContext context) {
         icon: Icon(Icons.fingerprint),
         label: 'Attendance',
       ),
+       BottomNavigationBarItem(
+    icon: Icon(Icons.history),
+    label: 'History',
+  ),
       BottomNavigationBarItem(
         icon: Icon(Icons.person),
         label: 'Profile',

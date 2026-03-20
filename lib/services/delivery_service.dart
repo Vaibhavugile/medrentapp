@@ -148,6 +148,7 @@ class DeliveryService {
     'status': 'accepted',
     'lastUpdatedBy': driverId,
     'updatedAt': FieldValue.serverTimestamp(),
+    'stageTimes.accepted': FieldValue.serverTimestamp(),
   });
 }
 
@@ -295,6 +296,7 @@ class DeliveryService {
       'leaderDriverId': leaderDriverId,
       'pickedUpAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
+       'stageTimes.in_transit': FieldValue.serverTimestamp(),
     });
 
     print('🎉 [PICKUP] Transaction completed SUCCESSFULLY');
@@ -421,6 +423,7 @@ Future<void> tryCompleteReturn({
       'status': newStage,
       'lastUpdatedBy': byDriverId,
       'updatedAt': FieldValue.serverTimestamp(),
+      'stageTimes.$newStage': FieldValue.serverTimestamp(),
     });
   }
 
