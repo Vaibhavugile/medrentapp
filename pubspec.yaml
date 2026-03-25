@@ -1,7 +1,7 @@
 name: driver_app
 description: Driver app (attendance + background tracking)
 publish_to: "none"
-version: 3.0.1+12
+version: 3.0.1+13
 environment:
   sdk: ">=3.3.0 <4.0.0"
 
@@ -39,5 +39,5 @@ flutter:
 
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
   image_path: "assets/icon/app_icon.png"
