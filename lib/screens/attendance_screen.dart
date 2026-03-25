@@ -112,6 +112,16 @@ Future<void> _resolveMarketingIdIfNeeded() async {
         resolved = q.docs.first.id;
       }
     }
+    // ================= USERS (NEW — NO RESOLUTION NEEDED) =================
+if (widget.collectionRoot == 'users') {
+  // users collection uses auth UID directly
+  _effectiveUserId = FirebaseAuth.instance.currentUser!.uid;
+
+  // recreate LocationService
+  _loc = LocationService(_att, _effectiveUserId, widget.collectionRoot);
+
+  return;
+}
 
     // ================= APPLY RESOLUTION =================
     if (resolved != null &&

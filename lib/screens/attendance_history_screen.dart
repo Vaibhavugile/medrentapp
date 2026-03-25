@@ -206,126 +206,241 @@ class _AttendanceHistoryScreenState
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+ @override
+Widget build(BuildContext context) {
+  final theme = Theme.of(context);
 
-    if (loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+  if (loading) {
+    return const Center(child: CircularProgressIndicator());
+  }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Attendance History"),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.calendar_month),
-            onPressed: pickMonth,
-          )
-        ],
+  return Scaffold(
+    backgroundColor: const Color(0xFFF5F7FB),
+
+    appBar: AppBar(
+      elevation: 0,
+      title: const Text("Attendance History"),
+      flexibleSpace: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF2C3E50),
+              Color(0xFF4CA1AF),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
       ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.calendar_month),
+          onPressed: pickMonth,
+        )
+      ],
+    ),
 
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
 
-          // ===== SUMMARY =====
-          Container(
-            padding: const EdgeInsets.all(16),
+        /// MONTH HEADER
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF4CA1AF), Color(0xFF2C3E50)],
+            ),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                "Month: $monthKey",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.edit_calendar, color: Colors.white),
+                onPressed: pickMonth,
+              )
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        /// SUMMARY GRID
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 2.2,
+          children: [
+
+            _summaryCard("Present", present, Colors.green),
+            _summaryCard("Grace", grace, Colors.orange),
+            _summaryCard("Half Day", half, Colors.blue),
+            _summaryCard("Absent", absent, Colors.red),
+
+          ],
+        ),
+
+        const SizedBox(height: 16),
+
+        /// SALARY CARD
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [
+              BoxShadow(
+                blurRadius: 15,
+                color: Colors.black.withOpacity(.06),
+              )
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              const Text(
+                "Salary Summary",
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Total Hours"),
+                  Text(
+                    hhmm(totalMinutes),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  )
+                ],
+              ),
+
+              const SizedBox(height: 6),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Calculated Salary"),
+                  Text(
+                    "₹${salary.round()}",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                      fontSize: 18,
+                    ),
+                  )
+                ],
+              ),
+
+              const SizedBox(height: 6),
+
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Base Monthly Salary"),
+                  Text("₹${monthlySalary.round()}"),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+
+        const Text(
+          "Daily Attendance",
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+
+        const SizedBox(height: 10),
+
+        /// DAILY RECORDS
+        ...records.map((r) {
+
+          final color = getTypeColor(r["type"]);
+
+          return Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: BorderRadius.circular(16),
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
                   blurRadius: 12,
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withOpacity(.05),
                 )
               ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
 
-                Text(
-                  "Month: $monthKey",
-                  style: theme.textTheme.titleMedium!
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-
-                const SizedBox(height: 12),
-
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _pill("Present $present", Colors.green),
-                    _pill("Grace $grace", Colors.orange),
-                    _pill("Half $half", Colors.blue),
-                    _pill("Absent $absent", Colors.red),
+                    Text(
+                      r["date"],
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Hours: ${hhmm(r["minutes"])}",
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                      ),
+                    ),
                   ],
                 ),
 
-                const SizedBox(height: 12),
-
-                Text("Total Hours: ${hhmm(totalMinutes)}"),
-
-                const SizedBox(height: 6),
-
-                Text(
-                  "Salary: ₹${salary.round()}",
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-
-                const SizedBox(height: 4),
-
-                Text(
-                  "Base Salary: ₹${monthlySalary.round()} / month",
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // ===== DAILY =====
-          ...records.map((r) {
-            return Card(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: ListTile(
-                title: Text(r["date"]),
-                subtitle: Text("Hours: ${hhmm(r["minutes"])}"),
-                trailing: Container(
+                Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 6),
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
-                    color: getTypeColor(r["type"]).withOpacity(0.15),
+                    color: color.withOpacity(.15),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     r["type"].toUpperCase(),
                     style: TextStyle(
-                      color: getTypeColor(r["type"]),
+                      color: color,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-              ),
-            );
-          })
-        ],
-      ),
-    );
-  }
+                )
+              ],
+            ),
+          );
+
+        })
+      ],
+    ),
+  );
+}
 
   Widget _pill(String text, Color color) {
     return Container(
@@ -340,4 +455,55 @@ class _AttendanceHistoryScreenState
       ),
     );
   }
+ Widget _summaryCard(String title, int value, Color color) {
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          blurRadius: 10,
+          color: Colors.black.withOpacity(.05),
+        )
+      ],
+    ),
+    child: Row(
+      children: [
+
+        CircleAvatar(
+          radius: 16,
+          backgroundColor: color.withOpacity(.15),
+          child: Icon(Icons.circle, color: color, size: 10),
+        ),
+
+        const SizedBox(width: 10),
+
+        Expanded(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[600],
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value.toString(),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
 }

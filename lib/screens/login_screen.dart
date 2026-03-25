@@ -9,6 +9,7 @@ import '../marketing/marketing_home.dart';
 import 'home_shell.dart';
 import 'signup_screen.dart';
 import '../nurse/nurse_home_shell.dart';
+import 'user_home_shell.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -136,90 +137,94 @@ Future<void> _routeAfterLogin(BuildContext context) async {
   final uid = FirebaseAuth.instance.currentUser!.uid;
   final db = FirebaseFirestore.instance;
 
+  // ✅ STEP 1: GET ROLE
+  final userDoc = await db.collection('users').doc(uid).get();
+  final role = userDoc.data()?['role'];
+
+  print("🟢 USER ROLE => $role");
+
+  // ================= DRIVER =================
+  if (role == 'driver') {
+    if (!mounted) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const HomeShell()),
+    );
+    return;
+  }
+
   // ================= MARKETING =================
+  if (role == 'marketing') {
 
-  // 1️⃣ Marketing by docId == uid
-  final marketingById = await db.collection('marketing').doc(uid).get();
-  if (marketingById.exists && marketingById.data()?['active'] == true) {
-    final name = (marketingById.data()?['name'] ?? 'Marketing').toString();
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MarketingHome(
-          userId: marketingById.id, // ✅ DOC ID
-          userName: name,
+    // by authUid
+    final marketingByAuth = await db
+        .collection('marketing')
+        .where('authUid', isEqualTo: uid)
+        .where('active', isEqualTo: true)
+        .limit(1)
+        .get();
+
+    if (marketingByAuth.docs.isNotEmpty) {
+      final doc = marketingByAuth.docs.first;
+      final name = (doc.data()['name'] ?? 'Marketing').toString();
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => MarketingHome(
+            userId: doc.id,
+            userName: name,
+          ),
         ),
-      ),
-    );
-    return;
+      );
+      return;
+    }
   }
 
-  // 2️⃣ Marketing by authUid
-  final marketingByAuth = await db
-      .collection('marketing')
-      .where('authUid', isEqualTo: uid)
-      .where('active', isEqualTo: true)
-      .limit(1)
-      .get();
+  // ================= STAFF =================
+  if (role == 'staff') {
 
-  if (marketingByAuth.docs.isNotEmpty) {
-    final doc = marketingByAuth.docs.first;
-    final name = (doc.data()['name'] ?? 'Marketing').toString();
+    final staffByAuth = await db
+        .collection('staff')
+        .where('authUid', isEqualTo: uid)
+        .where('active', isEqualTo: true)
+        .limit(1)
+        .get();
 
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => MarketingHome(
-          userId: doc.id, // ✅ DOC ID
-          userName: name,
+    if (staffByAuth.docs.isNotEmpty) {
+      final doc = staffByAuth.docs.first;
+      final name = (doc.data()['name'] ?? 'Nurse').toString();
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NurseHomeShell(
+            staffId: doc.id,
+            staffName: name,
+          ),
         ),
-      ),
-    );
-    return;
+      );
+      return;
+    }
   }
 
-  // ================= STAFF / NURSE =================
+  // ================= OTHER ROLES =================
+  // sales / admin / accounts / etc
 
-  // 3️⃣ Staff by authUid (CORRECT PATTERN)
-  final staffByAuth = await db
-      .collection('staff')
-      .where('authUid', isEqualTo: uid)
-      .where('active', isEqualTo: true)
-      .limit(1)
-      .get();
-
-  if (staffByAuth.docs.isNotEmpty) {
-    final doc = staffByAuth.docs.first;
-    final name = (doc.data()['name'] ?? 'Nurse').toString();
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NurseHomeShell(
-          staffId: doc.id,     // ✅ STAFF DOC ID
-          staffName: name,
-        ),
-      ),
-    );
-    return;
-  }
-
-  // ================= DRIVER (UNCHANGED) =================
-
-  // await _syncDriverDeviceToken(uid);
+  print("🟡 Non-operational role → $role");
 
   if (!mounted) return;
+
   Navigator.pushReplacement(
     context,
-    MaterialPageRoute(builder: (_) => const HomeShell()),
+    MaterialPageRoute(
+      builder: (_) => const UserHomeShell(), // 🔁 later you can change
+    ),
   );
 }
-
-
-
   Future<void> _saveCredentials(bool remember, String email, String pass) async {
     try {
       final prefs = await SharedPreferences.getInstance();

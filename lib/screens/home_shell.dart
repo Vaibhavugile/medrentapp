@@ -228,56 +228,150 @@ Widget _buildContent(BuildContext context) {
     );
   }
 
-  final driverName = (driver!.data['name'] ?? 'NA').toString();
+  final driverName = (driver!.data['name'] ?? 'Driver').toString();
+  final firstLetter = driverName.isNotEmpty
+      ? driverName[0].toUpperCase()
+      : "D";
 
   return Scaffold(
-  appBar: AppBar(
-    title: const Text('Driver Dashboard'),
-    actions: [
-      IconButton(
-        icon: const Icon(Icons.logout),
-        onPressed: () async {
-          try { await FlutterForegroundTask.stopService(); } catch (_) {}
-          await _auth.signOut();
-          if (context.mounted) {
-            Navigator.pushNamedAndRemoveUntil(
-              context,
-              '/',
-              (_) => false,
-            );
-          }
-        },
-      ),
-    ],
-  ),
+    backgroundColor: const Color(0xFFF5F7FB),
 
-  body: _pages[_index],
+    /// PREMIUM APPBAR
+    appBar: AppBar(
+      elevation: 0,
 
-  bottomNavigationBar: BottomNavigationBar(
-    currentIndex: _index,
-    onTap: (i) => setState(() => _index = i),
-    type: BottomNavigationBarType.fixed,
-    items: const [
-      BottomNavigationBarItem(
-        icon: Icon(Icons.local_shipping),
-        label: 'Tasks',
+      flexibleSpace: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF0F4C75),
+              Color(0xFF3282B8),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
       ),
-      BottomNavigationBarItem(
-        icon: Icon(Icons.fingerprint),
-        label: 'Attendance',
-      ),
-       BottomNavigationBarItem(
-    icon: Icon(Icons.history),
-    label: 'History',
-  ),
-      BottomNavigationBarItem(
-        icon: Icon(Icons.person),
-        label: 'Profile',
-      ),
-    ],
-  ),
-);
 
+      title: Row(
+        children: [
+
+          /// Avatar
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: Colors.white,
+            child: Text(
+              firstLetter,
+              style: const TextStyle(
+                color: Colors.black,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                driverName,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Text(
+                "Driver",
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white70,
+                ),
+              )
+            ],
+          )
+        ],
+      ),
+
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.logout),
+          onPressed: () async {
+            try {
+              await FlutterForegroundTask.stopService();
+            } catch (_) {}
+
+            await _auth.signOut();
+
+            if (context.mounted) {
+              Navigator.pushNamedAndRemoveUntil(
+                context,
+                '/',
+                (_) => false,
+              );
+            }
+          },
+        )
+      ],
+    ),
+
+    /// PAGES
+    body: AnimatedSwitcher(
+      duration: const Duration(milliseconds: 250),
+      child: _pages[_index],
+    ),
+
+    /// PREMIUM BOTTOM NAV
+    bottomNavigationBar: Container(
+      margin: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            blurRadius: 18,
+            color: Colors.black.withOpacity(.08),
+            offset: const Offset(0, 6),
+          )
+        ],
+      ),
+
+      child: BottomNavigationBar(
+        currentIndex: _index,
+        onTap: (i) => setState(() => _index = i),
+
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        type: BottomNavigationBarType.fixed,
+
+        selectedItemColor: const Color(0xFF0F4C75),
+        unselectedItemColor: Colors.grey,
+
+        items: const [
+
+          BottomNavigationBarItem(
+            icon: Icon(Icons.local_shipping),
+            label: 'Tasks',
+          ),
+
+          BottomNavigationBarItem(
+            icon: Icon(Icons.fingerprint),
+            label: 'Attendance',
+          ),
+
+          BottomNavigationBarItem(
+            icon: Icon(Icons.history),
+            label: 'History',
+          ),
+
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 
