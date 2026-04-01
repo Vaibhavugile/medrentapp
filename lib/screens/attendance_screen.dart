@@ -675,15 +675,13 @@ Future<void> _showBackgroundPermissionGuide() async {
                             icon: Icons.schedule,
                           ),
                           _Chip(
-                            label:
-                                'Check-in: ${timeFromMs(att?['checkInMs'])}',
-                            icon: Icons.login,
-                          ),
+  label: 'Check-in: ${timeFromTimestamp(att?['checkInServer'])}',
+  icon: Icons.login,
+),
                           _Chip(
-                            label:
-                                'Check-out: ${timeFromMs(att?['checkOutMs'])}',
-                            icon: Icons.logout,
-                          ),
+  label: 'Check-out: ${timeFromTimestamp(att?['checkOutServer'])}',
+  icon: Icons.logout,
+),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -814,15 +812,13 @@ Future<void> _showBackgroundPermissionGuide() async {
                 ...shifts.map((e) {
                   final number = e.key;
                   final data = e.value;
-                  final checkInMs = data['checkInMs'] as int?;
-                  final checkOutMs = data['checkOutMs'] as int?;
+                  final checkInServer = data['checkInServer'];
+final checkOutServer = data['checkOutServer'];
                   final status = (data['status'] ?? '').toString();
                   final noteText = (data['note'] ?? '').toString();
-                  final checkInTime =
-                      checkInMs != null ? timeFromMs(checkInMs) : '—';
-                  final checkOutTime =
-                      checkOutMs != null ? timeFromMs(checkOutMs) : '—';
-                  final isOpen = checkOutMs == null;
+                  final checkInTime = checkInServer != null ? timeFromTimestamp(checkInServer) : '—';
+final checkOutTime = checkOutServer != null ? timeFromTimestamp(checkOutServer) : '—';
+                  final isOpen =  checkOutServer == null;
 
                   return Card(
                     child: ListTile(
@@ -1156,4 +1152,11 @@ Future<bool> showConfirm(BuildContext ctx, String msg) async {
 void showSnack(BuildContext ctx, String msg) {
   ScaffoldMessenger.of(ctx)
       .showSnackBar(SnackBar(content: Text(msg)));
+}
+String timeFromTimestamp(dynamic ts) {
+  if (ts == null) return '—';
+
+  final d = (ts as Timestamp).toDate();
+
+  return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 }

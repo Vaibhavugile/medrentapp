@@ -1,7 +1,7 @@
 name: driver_app
 description: Driver app (attendance + background tracking)
 publish_to: "none"
-version: 3.0.2+14
+version: 4.0.2+15
 environment:
   sdk: ">=3.3.0 <4.0.0"
 
