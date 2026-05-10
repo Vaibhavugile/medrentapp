@@ -93,6 +93,239 @@ class _LeadsScreenState extends State<LeadsScreen> {
       byName: widget.userName,
     );
   }
+  Future<void> _addLeadSheet() async {
+
+  _customerCtrl.clear();
+  _contactCtrl.clear();
+  _phoneCtrl.clear();
+  _emailCtrl.clear();
+  _addrCtrl.clear();
+  _sourceCtrl.clear();
+  _notesCtrl.clear();
+
+  _status = 'new';
+  _type = 'equipment';
+
+  await showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) {
+
+      final kb = MediaQuery.of(context).viewInsets.bottom;
+
+      return Padding(
+        padding: EdgeInsets.only(bottom: kb),
+
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.8,
+          minChildSize: 0.4,
+          maxChildSize: 0.95,
+
+          builder: (ctx, scrollController) {
+
+            return StatefulBuilder(
+              builder: (ctx, setModalState) {
+
+                return Material(
+                  elevation: 6,
+                  color: Theme.of(ctx).colorScheme.surface,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(16),
+                  ),
+
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(16),
+
+                    children: [
+
+                      Text(
+                        "New Lead",
+                        style: Theme.of(ctx).textTheme.titleLarge,
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      /// TYPE SELECTOR
+                      Text(
+                        "Lead Type",
+                        style: Theme.of(ctx).textTheme.titleMedium,
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      Row(
+                        children: [
+
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text("Equipment"),
+                              selected: _type == "equipment",
+                              onSelected: (_) {
+                                setModalState(() {
+                                  _type = "equipment";
+                                });
+                              },
+                            ),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text("Nursing"),
+                              selected: _type == "nursing",
+                              onSelected: (_) {
+                                setModalState(() {
+                                  _type = "nursing";
+                                });
+                              },
+                            ),
+                          ),
+
+                          const SizedBox(width: 8),
+
+                          Expanded(
+                            child: ChoiceChip(
+                              label: const Text("Caretaker"),
+                              selected: _type == "caretaker",
+                              onSelected: (_) {
+                                setModalState(() {
+                                  _type = "caretaker";
+                                });
+                              },
+                            ),
+                          ),
+
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      TextField(
+                        controller: _customerCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Customer / Hospital *",
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _contactCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Contact Person *",
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _phoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: "Phone *",
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _emailCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Email",
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _addrCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Address / City",
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _sourceCtrl,
+                        decoration: const InputDecoration(
+                          labelText: "Lead Source",
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: _notesCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          labelText: "Notes",
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      FilledButton(
+
+                        onPressed: () async {
+
+                          final cust = _customerCtrl.text.trim();
+                          final cont = _contactCtrl.text.trim();
+                          final ph   = _phoneCtrl.text.trim();
+
+                          if(cust.isEmpty || cont.isEmpty || ph.isEmpty){
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  "Customer, Contact and Phone required"
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+
+                            return;
+                          }
+
+                          Navigator.pop(context);
+
+                          await _svc.createLeadDetailed(
+
+                            ownerId: widget.userId,
+                            ownerName: widget.userName,
+
+                            customerName: cust,
+                            contactPerson: cont,
+                            phone: ph,
+
+                            email: _emailCtrl.text.trim(),
+                            address: _addrCtrl.text.trim(),
+                            leadSource: _sourceCtrl.text.trim(),
+                            notes: _notesCtrl.text.trim(),
+
+                            status: _status,
+                            type: _type,
+                          );
+                        },
+
+                        child: const Text("Create Lead"),
+                      )
+
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      );
+    },
+  );
+}
 
   Color _statusColor(String s) {
     final colors = {
@@ -120,10 +353,10 @@ class _LeadsScreenState extends State<LeadsScreen> {
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
-        icon: const Icon(Icons.add),
-        label: const Text("Add Lead"),
-      ),
+  onPressed: _addLeadSheet,
+  icon: const Icon(Icons.add),
+  label: const Text("Add Lead"),
+),
       body: Column(
         children: [
 
