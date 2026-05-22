@@ -23,7 +23,13 @@ class _LeadsScreenState extends State<LeadsScreen> {
   List<Map<String, dynamic>> _all = [];
 
   String _q = '';
-  
+  String _sortBy = 'latest';
+
+String _filterType = 'all';
+DateTimeRange? _dateRange;
+
+bool _duplicatesOnly = false;
+  Map<String, dynamic> _draft = {};
 
   bool loading = true;
 
@@ -36,8 +42,7 @@ class _LeadsScreenState extends State<LeadsScreen> {
   final _notesCtrl = TextEditingController();
 
   String _status = 'new';
-  String _type = 'equipment';
-
+String _type = '';
  
   @override
   void initState() {
@@ -54,56 +59,167 @@ class _LeadsScreenState extends State<LeadsScreen> {
   @override
   void dispose() {
     _sub?.cancel();
-    super.dispose();
+
+_customerCtrl.dispose();
+_contactCtrl.dispose();
+_phoneCtrl.dispose();
+_emailCtrl.dispose();
+_addrCtrl.dispose();
+_sourceCtrl.dispose();
+_notesCtrl.dispose();
+
+super.dispose();
   }
 
 List<Map<String, dynamic>> get _filtered {
 
+  List<Map<String, dynamic>> data =
+      [..._all];
+
+  /// SEARCH
+
   final q = _q.toLowerCase();
 
-  if (q.isEmpty) {
-    return _all;
+  if (q.isNotEmpty) {
+
+    data = data.where((l) {
+
+      final text = [
+
+        l['customerName'],
+        l['contactPerson'],
+        l['phone'],
+        l['email'],
+        l['leadSource'],
+        l['notes'],
+        l['type'],
+
+      ].join(' ').toLowerCase();
+
+      return text.contains(q);
+
+    }).toList();
   }
 
-  return _all.where((l) {
+  /// TYPE FILTER
 
-    final text = [
+  if (_filterType != 'all') {
 
-      l['customerName'],
-      l['contactPerson'],
-      l['phone'],
-      l['email'],
-      l['leadSource'],
-      l['notes'],
-      l['type'],
+    data = data.where((l) {
 
-    ].join(' ').toLowerCase();
+      return l['type'] == _filterType;
 
-    return text.contains(q);
+    }).toList();
+  }
 
+  /// DUPLICATE FILTER
+
+  if (_duplicatesOnly) {
+
+    data = data.where((l) {
+
+      return l['isDuplicate'] == true;
+
+    }).toList();
+  }
+
+/// DATE FILTER
+
+if (_dateRange != null) {
+
+  data = data.where((l) {
+
+    final created =
+        l['createdAt'];
+
+    if (created == null) {
+      return false;
+    }
+
+    final date =
+        created.toDate();
+
+    return date.isAfter(
+
+          _dateRange!.start.subtract(
+            const Duration(days: 1),
+          ),
+        ) &&
+        date.isBefore(
+
+          _dateRange!.end.add(
+            const Duration(days: 1),
+          ),
+        );
   }).toList();
 }
+  /// SORT
 
+  data.sort((a, b) {
 
+    final aDate =
+        a['createdAt'];
+
+    final bDate =
+        b['createdAt'];
+
+    if (aDate == null ||
+        bDate == null) {
+      return 0;
+    }
+
+    final aTime =
+        aDate.toDate();
+
+    final bTime =
+        bDate.toDate();
+
+    if (_sortBy == 'latest') {
+
+      return bTime.compareTo(aTime);
+    }
+
+    return aTime.compareTo(bTime);
+  });
+
+  return data;
+}
+void _saveDraft() {
+  _draft = {
+    'customer': _customerCtrl.text,
+    'contact': _contactCtrl.text,
+    'phone': _phoneCtrl.text,
+    'email': _emailCtrl.text,
+    'address': _addrCtrl.text,
+    'source': _sourceCtrl.text,
+    'notes': _notesCtrl.text,
+    'type': _type,
+  };
+}
+void _clearDraft() {
+
+  _draft.clear();
+}
  Future<void> _addLeadSheet() async {
 
-  _customerCtrl.clear();
-  _contactCtrl.clear();
-  _phoneCtrl.clear();
-  _emailCtrl.clear();
-  _addrCtrl.clear();
-  _sourceCtrl.clear();
-  _notesCtrl.clear();
+  _customerCtrl.text = _draft['customer'] ?? '';
+_contactCtrl.text = _draft['contact'] ?? '';
+_phoneCtrl.text = _draft['phone'] ?? '';
+_emailCtrl.text = _draft['email'] ?? '';
+_addrCtrl.text = _draft['address'] ?? '';
+_sourceCtrl.text = _draft['source'] ?? '';
+_notesCtrl.text = _draft['notes'] ?? '';
+_type = _draft['type'] ?? '';
 
   _status = 'new';
-  _type = 'equipment';
 
   await showModalBottomSheet(
 
     context: context,
 
     isScrollControlled: true,
-
+isDismissible: false,
+enableDrag: false,
     backgroundColor: Colors.transparent,
 
     builder: (_) {
@@ -147,7 +263,91 @@ List<Map<String, dynamic>> get _filtered {
                   setModalState,
                 ) {
 
-                  return Container(
+                  return WillPopScope(
+
+  onWillPop: () async {
+
+    final hasData =
+
+        _customerCtrl.text.isNotEmpty ||
+
+        _contactCtrl.text.isNotEmpty ||
+
+        _phoneCtrl.text.isNotEmpty ||
+
+        _emailCtrl.text.isNotEmpty ||
+
+        _notesCtrl.text.isNotEmpty;
+
+    /// NO DATA
+   if (!hasData) {
+
+  Navigator.pop(context);
+
+  return false;
+}
+
+    /// ASK BEFORE CLOSE
+    final shouldClose =
+        await showDialog<bool>(
+
+      context: context,
+
+      builder: (_) {
+
+        return AlertDialog(
+
+          title: const Text(
+            "Save Draft?",
+          ),
+
+          content: const Text(
+
+            "Your entered form data will be restored later.",
+          ),
+
+          actions: [
+
+            TextButton(
+
+              onPressed: () {
+
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+
+              child: const Text(
+                "Continue Editing",
+              ),
+            ),
+
+            FilledButton(
+
+              onPressed: () {
+
+                _saveDraft();
+
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+
+              child: const Text(
+                "Close",
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    return shouldClose ?? false;
+  },
+
+  child: Container(
 
                     decoration:
                         const BoxDecoration(
@@ -170,34 +370,34 @@ List<Map<String, dynamic>> get _filtered {
 
                      child: LayoutBuilder(
 
-  builder: (context, constraints) {
+                       builder: (context, constraints) {
 
-    return SingleChildScrollView(
+                       return SingleChildScrollView(
 
-      controller: scrollController,
+                          controller: scrollController,
 
-      keyboardDismissBehavior:
-          ScrollViewKeyboardDismissBehavior
-              .onDrag,
+                          keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior
+                        .onDrag,
 
-      physics:
-          const BouncingScrollPhysics(),
+                         physics:
+                        const BouncingScrollPhysics(),
 
-      padding: EdgeInsets.fromLTRB(
+                      padding: EdgeInsets.fromLTRB(
 
-        20,
-        20,
-        20,
+                      20,
+                      20,
+                      20,
 
-        MediaQuery.of(context)
-                .viewInsets
-                .bottom +
-            40,
-      ),
+                      MediaQuery.of(context)
+                              .viewInsets
+                              .bottom +
+                          40,
+                    ),
 
-      child: ConstrainedBox(
+                   child: ConstrainedBox(
 
-        constraints: BoxConstraints(
+               constraints: BoxConstraints(
           minHeight:
               constraints.maxHeight,
         ),
@@ -339,6 +539,91 @@ List<Map<String, dynamic>> get _filtered {
                                       ],
                                     ),
                                   ),
+                                  IconButton(
+
+                   onPressed: () async {
+
+                      final hasData =
+
+                  _customerCtrl.text.isNotEmpty ||
+
+                  _contactCtrl.text.isNotEmpty ||
+
+                  _phoneCtrl.text.isNotEmpty;
+
+              if (!hasData) {
+
+                Navigator.pop(context);
+
+                return;
+              }
+
+              final shouldClose =
+                  await showDialog<bool>(
+
+                context: context,
+
+                builder: (_) {
+
+                  return AlertDialog(
+
+                    title: const Text(
+                      "Save Draft?",
+                    ),
+
+                    content: const Text(
+
+                      "Your form will be restored next time.",
+                    ),
+
+          actions: [
+
+            TextButton(
+
+              onPressed: () {
+
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+
+              child: const Text(
+                "Cancel",
+              ),
+            ),
+
+            FilledButton(
+
+              onPressed: () {
+
+                _saveDraft();
+
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+
+              child: const Text(
+                "Close",
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldClose == true) {
+
+      Navigator.pop(context);
+    }
+  },
+
+                            icon: const Icon(
+                              Icons.close,
+                            ),
+                          ),
                                 ],
                               ),
 
@@ -427,100 +712,119 @@ List<Map<String, dynamic>> get _filtered {
                                 height: 28,
                               ),
 
-                              _premiumField(
-                                controller:
-                                    _customerCtrl,
-                                label:
-                                    "Customer / Hospital",
-                                icon: Icons
-                                    .business_outlined,
-                              ),
+                             /// CUSTOMER + CONTACT
 
-                              const SizedBox(
-                                height: 16,
-                              ),
 
-                              _premiumField(
-                                controller:
-                                    _contactCtrl,
-                                label:
-                                    "Contact Person",
-                                icon: Icons
-                                    .person_outline,
-                              ),
 
-                              const SizedBox(
-                                height: 16,
-                              ),
+   _premiumField(
 
-                              _premiumField(
-                                controller:
-                                    _phoneCtrl,
-                                label:
-                                    "Phone Number",
-                                icon: Icons
-                                    .call_outlined,
-                                keyboard:
-                                    TextInputType
-                                        .phone,
-                              ),
+    controller: _customerCtrl,
 
-                              const SizedBox(
-                                height: 16,
-                              ),
+    label: "Customer / Hospital",
 
-                              _premiumField(
-                                controller:
-                                    _emailCtrl,
-                                label:
-                                    "Email Address",
-                                icon: Icons
-                                    .mail_outline,
-                              ),
+    icon: Icons.business_outlined,
+  ),
 
-                              const SizedBox(
-                                height: 16,
-                              ),
 
-                              _premiumField(
-                                controller:
-                                    _addrCtrl,
-                                label:
-                                    "Address / City",
-                                icon: Icons
-                                    .location_on_outlined,
-                              ),
-
-                              const SizedBox(
-                                height: 16,
-                              ),
-
-                              _premiumField(
-                                controller:
-                                    _sourceCtrl,
-                                label:
-                                    "Lead Source",
-                                icon: Icons
-                                    .campaign_outlined,
-                              ),
-
-                              const SizedBox(
-                                height: 16,
-                              ),
-
-                              _premiumField(
-                                controller:
-                                    _notesCtrl,
-                                label:
-                                    "Notes",
-                                icon: Icons
-                                    .notes_outlined,
-                                maxLines: 5,
-                              ),
 
 const SizedBox(
-  height: 32,
+  height: 16,
 ),
+ _premiumField(
+
+    controller: _contactCtrl,
+
+    label: "Contact Person",
+
+    icon: Icons.person_outline,
+  ),
+
+const SizedBox(
+  height: 16,
+),
+
+/// PHONE + EMAIL
+
+ _premiumField(
+
+    controller: _phoneCtrl,
+
+    label: "Phone Number",
+
+    icon: Icons.call_outlined,
+
+    keyboard: TextInputType.phone,
+  ),
+  const SizedBox(
+  height: 16,
+),
+
+  _premiumField(
+
+    controller: _emailCtrl,
+
+    label: "Email Address",
+
+    icon: Icons.mail_outline,
+  ),
+  const SizedBox(
+  height: 16,
+),
+
+
+
+
+/// ADDRESS
+
+_premiumField(
+
+  controller: _addrCtrl,
+
+  label: "Address / City",
+
+  icon: Icons.location_on_outlined,
+
+  maxLines: 2,
+),
+
+const SizedBox(
+  height: 16,
+),
+
+/// SOURCE + NOTES
+
+
+
+ _premiumField(
+
+    controller: _sourceCtrl,
+
+    label: "Lead Source",
+
+    icon: Icons.campaign_outlined,
+
+    maxLines: 3,
+  ),
+  const SizedBox(
+  height: 16,
+),
+
+
+  _premiumField(
+
+    controller: _notesCtrl,
+
+    label: "Notes",
+
+    icon: Icons.notes_outlined,
+
+    maxLines: 3,
+  ),
+
+
+                                  const SizedBox(
+                                    height: 32,
+                                  ),
                               SizedBox(
 
                                 width:
@@ -620,12 +924,17 @@ const SizedBox(
                                               .text
                                               .trim();
 
-                                      if (cust
-                                              .isEmpty ||
-                                          cont
-                                              .isEmpty ||
-                                          ph
-                                              .isEmpty) {
+                                      if (
+
+    _type.isEmpty ||
+
+    cust.isEmpty ||
+
+    cont.isEmpty ||
+
+    ph.isEmpty
+
+) {
 
                                         ScaffoldMessenger
                                                 .of(
@@ -645,7 +954,7 @@ const SizedBox(
                                             content:
                                                 const Text(
 
-                                              "Customer, Contact and Phone required",
+                                              "Select lead type and fill all required fields",
                                             ),
                                           ),
                                         );
@@ -791,6 +1100,7 @@ const SizedBox(
                                         type:
                                             _type,
                                       );
+                                      _clearDraft();
                                     },
 
                                     child:
@@ -825,7 +1135,8 @@ const SizedBox(
                 ),
                     ),
                     
-                  );
+                    ),
+);
                 },
               );
             },
@@ -833,6 +1144,29 @@ const SizedBox(
         ),
       );
     },
+  );
+}
+Widget _twoFields({
+
+  required Widget left,
+  required Widget right,
+
+}) {
+
+  return Row(
+
+    children: [
+
+      Expanded(
+        child: left,
+      ),
+
+      const SizedBox(width: 12),
+
+      Expanded(
+        child: right,
+      ),
+    ],
   );
 }
 Widget _leadTypeChip({
@@ -853,6 +1187,8 @@ Widget _leadTypeChip({
       setModalState(() {
 
         _type = value;
+
+_saveDraft();
 
       });
     },
@@ -969,8 +1305,11 @@ Widget _premiumField({
     child: TextField(
 
       controller: controller,
+      onChanged: (_) => _saveDraft(),
 
-      maxLines: maxLines,
+     maxLines: maxLines,
+
+minLines: maxLines,
 
       keyboardType: keyboard,
 
@@ -979,11 +1318,14 @@ Widget _premiumField({
               ? TextInputAction.done
               : TextInputAction.next,
 
-      scrollPadding:
-          const EdgeInsets.only(
-        bottom: 160,
-      ),
-
+     scrollPadding:
+    EdgeInsets.only(
+  bottom:
+      MediaQuery.of(context)
+              .viewInsets
+              .bottom +
+          350,
+),
       decoration: InputDecoration(
 
         hintText: label,
@@ -1061,12 +1403,11 @@ Widget _premiumField({
     }
 
     final items = _filtered;
+    final totalLeads = items.length;
+
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Leads"),
-        centerTitle: true,
-      ),
+      
       floatingActionButton: FloatingActionButton.extended(
   onPressed: _addLeadSheet,
   icon: const Icon(Icons.add),
@@ -1076,21 +1417,352 @@ Widget _premiumField({
         children: [
 
           /// SEARCH
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: TextField(
-              decoration: InputDecoration(
-                hintText: "Search leads...",
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
-              ),
-              onChanged: (v) => setState(() => _q = v),
-            ),
-          ),
+         Padding(
 
+  padding: const EdgeInsets.all(12),
+
+  child: Column(
+
+    children: [
+
+      /// SEARCH
+
+      TextField(
+
+        decoration: InputDecoration(
+
+          hintText: "Search leads...",
+
+          prefixIcon:
+              const Icon(Icons.search),
+
+          filled: true,
+
+          fillColor: Colors.white,
+
+          border: OutlineInputBorder(
+
+            borderRadius:
+                BorderRadius.circular(16),
+
+            borderSide:
+                BorderSide.none,
+          ),
+        ),
+
+        onChanged: (v) {
+
+          setState(() {
+
+            _q = v;
+
+          });
+        },
+      ),
+
+      const SizedBox(height: 12),
+
+      /// FILTERS
+
+      SingleChildScrollView(
+
+        scrollDirection: Axis.horizontal,
+
+        child: Row(
+
+          children: [
+
+            /// SORT
+
+            Container(
+
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 14,
+              ),
+
+              decoration: BoxDecoration(
+
+                color: Colors.white,
+
+                borderRadius:
+                    BorderRadius.circular(14),
+              ),
+
+              child:
+                  DropdownButtonHideUnderline(
+
+                child: DropdownButton<String>(
+
+                  value: _sortBy,
+
+                  items: const [
+
+                    DropdownMenuItem(
+
+                      value: 'latest',
+
+                      child: Text(
+                        "Latest",
+                      ),
+                    ),
+
+                    DropdownMenuItem(
+
+                      value: 'oldest',
+
+                      child: Text(
+                        "Oldest",
+                      ),
+                    ),
+                  ],
+
+                  onChanged: (v) {
+
+                    setState(() {
+
+                      _sortBy = v!;
+
+                    });
+                  },
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 10),
+
+            /// TYPE FILTER
+
+            Container(
+
+              padding:
+                  const EdgeInsets.symmetric(
+                horizontal: 14,
+              ),
+
+              decoration: BoxDecoration(
+
+                color: Colors.white,
+
+                borderRadius:
+                    BorderRadius.circular(14),
+              ),
+
+              child:
+                  DropdownButtonHideUnderline(
+
+                child: DropdownButton<String>(
+
+                  value: _filterType,
+
+                  items: const [
+
+                    DropdownMenuItem(
+
+                      value: 'all',
+
+                      child: Text(
+                        "All Types",
+                      ),
+                    ),
+
+                    DropdownMenuItem(
+
+                      value: 'equipment',
+
+                      child: Text(
+                        "Equipment",
+                      ),
+                    ),
+
+                    DropdownMenuItem(
+
+                      value: 'nursing',
+
+                      child: Text(
+                        "Nursing",
+                      ),
+                    ),
+
+                    DropdownMenuItem(
+
+                      value: 'caretaker',
+
+                      child: Text(
+                        "Caretaker",
+                      ),
+                    ),
+                  ],
+
+                  onChanged: (v) {
+
+                    setState(() {
+
+                      _filterType = v!;
+
+                    });
+                  },
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 10),
+
+            /// DUPLICATE FILTER
+
+            FilterChip(
+
+              label:
+                  const Text("Duplicates"),
+
+              selected:
+                  _duplicatesOnly,
+
+              onSelected: (v) {
+
+                setState(() {
+
+                  _duplicatesOnly = v;
+
+                });
+              },
+            ),
+
+            const SizedBox(width: 10),
+            OutlinedButton.icon(
+
+  onPressed: () async {
+
+    final picked =
+        await showDateRangePicker(
+
+      context: context,
+
+      firstDate:
+          DateTime(2023),
+
+      lastDate:
+          DateTime.now()
+              .add(
+        const Duration(days: 365),
+      ),
+    );
+
+    if (picked != null) {
+
+      setState(() {
+
+        _dateRange = picked;
+      });
+    }
+  },
+
+  icon: const Icon(
+    Icons.date_range,
+  ),
+
+  label: Text(
+
+    _dateRange == null
+        ? "Date Filter"
+        : "${_dateRange!.start.day}/${_dateRange!.start.month} - ${_dateRange!.end.day}/${_dateRange!.end.month}",
+  ),
+),
+
+            /// CLEAR FILTERS
+
+            OutlinedButton.icon(
+
+              onPressed: () {
+
+                setState(() {
+
+                  _q = '';
+
+                  _sortBy = 'latest';
+
+                  _filterType = 'all';
+                  _dateRange = null;
+
+                  _duplicatesOnly = false;
+
+                });
+              },
+
+              icon: const Icon(
+                Icons.refresh,
+              ),
+
+              label: const Text(
+                "Reset",
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+),
           /// STATUS TABS
-        
+        Padding(
+
+  padding: const EdgeInsets.symmetric(
+    horizontal: 16,
+  ),
+
+  child: Row(
+
+    children: [
+
+      Container(
+
+        padding:
+            const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 10,
+        ),
+
+        decoration: BoxDecoration(
+
+          color:
+              Colors.indigo.withOpacity(.08),
+
+          borderRadius:
+              BorderRadius.circular(14),
+        ),
+
+        child: Row(
+
+          children: [
+
+            Icon(
+              Icons.auto_graph,
+              size: 18,
+              color:
+                  Colors.indigo.shade700,
+            ),
+
+            const SizedBox(width: 8),
+
+            Text(
+
+              "Total Leads: $totalLeads",
+
+              style: TextStyle(
+
+                fontWeight:
+                    FontWeight.w700,
+
+                color:
+                    Colors.indigo.shade700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+),
 
           const SizedBox(height: 10),
 
