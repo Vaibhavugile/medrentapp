@@ -1802,258 +1802,127 @@ final color = Colors.indigo;
                             )
                           ],
                         ),
-                        child: Row(
-                          children: [
+                       child: Padding(
+  padding: const EdgeInsets.all(18),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
 
-                            /// STATUS BAR
-                            Container(
-                              width: 4,
-                              height: l['isDuplicate'] == true ? 210 : 180,
-                              decoration: BoxDecoration(
-                                color: color,
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(14),
-                                  bottomLeft: Radius.circular(14),
-                                ),
-                              ),
-                            ),
+      /// TOP ROW
+      Row(
+        children: [
 
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-
-                                    /// HEADER
-                                    Row(
-                                      children: [
-
-                                        CircleAvatar(
-                                          radius: 18,
-                                          backgroundColor:
-                                              color.withOpacity(.15),
-                                          child: Text(
-                                            (l['customerName'] ?? 'C')[0]
-                                                .toString()
-                                                .toUpperCase(),
-                                            style: TextStyle(
-                                                color: color,
-                                                fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-
-                                        const SizedBox(width: 10),
-
-                                        Expanded(
-                                          child: Text(
-                                            l['customerName'] ?? '',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 15),
-                                          ),
-                                        ),
-
-                                        Container(
-
-  padding: const EdgeInsets.symmetric(
-    horizontal: 10,
-    vertical: 5,
-  ),
-
-  decoration: BoxDecoration(
-
-    color: Colors.indigo.withOpacity(.1),
-
-    borderRadius:
-        BorderRadius.circular(100),
-  ),
-
-  child: Text(
-
-    (l['type'] ?? 'equipment')
-        .toString()
-        .toUpperCase(),
-
-    style: TextStyle(
-
-      fontSize: 11,
-
-      fontWeight: FontWeight.w700,
-
-      color: Colors.indigo.shade700,
-    ),
-  ),
-),
-                                      ],
-                                    ),
-
-                                    const SizedBox(height: 6),
-
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.person_outline,
-                                            size: 16,
-                                            color: Colors.grey),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            l['contactPerson'] ?? '-',
-                                            style:
-                                                const TextStyle(fontSize: 13),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-
-                                    const SizedBox(height: 3),
-
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.phone_outlined,
-                                            size: 16,
-                                            color: Colors.grey),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          l['phone'] ?? '-',
-                                          style:
-                                              const TextStyle(fontSize: 13),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 3),
-
-Row(
-  children: [
-
-    const Icon(
-      Icons.email_outlined,
-      size: 16,
-      color: Colors.grey,
-    ),
-
-    const SizedBox(width: 4),
-
-    Expanded(
-      child: Text(
-        l['email'] ?? '-',
-        style: const TextStyle(fontSize: 13),
-      ),
-    ),
-  ],
-),
-
-const SizedBox(height: 3),
-
-Row(
-  children: [
-
-    const Icon(
-      Icons.location_on_outlined,
-      size: 16,
-      color: Colors.grey,
-    ),
-
-    const SizedBox(width: 4),
-
-    Expanded(
-      child: Text(
-        l['address'] ?? '-',
-        style: const TextStyle(fontSize: 13),
-      ),
-    ),
-  ],
-),
-if (l['isDuplicate'] == true) ...[
-
-  const SizedBox(height: 8),
-
-  Container(
-
-    padding: const EdgeInsets.symmetric(
-      horizontal: 10,
-      vertical: 6,
-    ),
-
-    decoration: BoxDecoration(
-
-      color: Colors.red.withOpacity(.10),
-
-      borderRadius:
-          BorderRadius.circular(100),
-    ),
-
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-
-      children: const [
-
-        Icon(
-          Icons.copy_rounded,
-          size: 14,
-          color: Colors.red,
-        ),
-
-        SizedBox(width: 6),
-
-        Text(
-
-          "Duplicate Lead",
-
-          style: TextStyle(
-            color: Colors.red,
-            fontWeight: FontWeight.w700,
-            fontSize: 11,
+          CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.indigo.shade50,
+            child: Text(
+              (l['customerName'] ?? "C")
+                  .toString()[0]
+                  .toUpperCase(),
+              style: TextStyle(
+                color: Colors.indigo.shade700,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
           ),
-        ),
-      ],
-    ),
-  ),
-],
 
-                                    const SizedBox(height: 3),
+          const SizedBox(width: 14),
 
-                                    Row(
-                                      children: [
-                                        const Icon(Icons.campaign_outlined,
-                                            size: 16,
-                                            color: Colors.grey),
-                                        const SizedBox(width: 4),
-                                        Expanded(
-                                          child: Text(
-                                            l['leadSource'] ?? '-',
-                                            style:
-                                                const TextStyle(fontSize: 13),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
 
-Divider(height: 1),
+                Text(
+                  l['customerName'] ?? '',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
 
-const SizedBox(height: 10),
+                const SizedBox(height: 8),
 
-Text(
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.indigo.withOpacity(.10),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Text(
+                    (l['type'] ?? "Equipment")
+                        .toString()
+                        .toUpperCase(),
+                    style: TextStyle(
+                      color: Colors.indigo.shade700,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-  "Created by ${l['createdByName'] ?? '-'}",
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Colors.grey,
+          ),
+        ],
+      ),
 
-  style: TextStyle(
-    fontSize: 11,
-    color: Colors.grey.shade600,
+      const SizedBox(height: 16),
+
+      Divider(
+        height: 1,
+        color: Colors.grey.shade200,
+      ),
+
+      const SizedBox(height: 16),
+
+      /// STATUS
+      Row(
+        children: [
+
+          _statusChip(
+            (l['status'] ?? 'new').toString(),
+          ),
+
+          if (l['isDuplicate'] == true) ...[
+            const SizedBox(width: 10),
+
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(.10),
+                borderRadius: BorderRadius.circular(100),
+              ),
+              child: const Text(
+                "Duplicate",
+                style: TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+          ],
+
+          const Spacer(),
+        ],
+      ),
+    ],
   ),
 ),
-
-
-                                    
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                       );
                     },
@@ -2065,7 +1934,83 @@ Text(
   }
 
  
+Widget _statusChip(String status) {
+  final value = status.toLowerCase();
 
+  Color bgColor;
+  Color textColor;
+  IconData icon;
+
+  switch (value) {
+    case "new":
+      bgColor = const Color(0xFFE8F1FF);
+      textColor = const Color(0xFF2563EB);
+      icon = Icons.fiber_new_rounded;
+      break;
+
+    case "contacted":
+      bgColor = const Color(0xFFFFF4E5);
+      textColor = const Color(0xFFF59E0B);
+      icon = Icons.call_rounded;
+      break;
+
+    case "req shared":
+      bgColor = const Color(0xFFF3E8FF);
+      textColor = const Color(0xFF7C3AED);
+      icon = Icons.description_rounded;
+      break;
+
+    case "closed":
+      bgColor = const Color(0xFFE8F8EC);
+      textColor = const Color(0xFF16A34A);
+      icon = Icons.check_circle_rounded;
+      break;
+
+    case "lost":
+      bgColor = const Color(0xFFFDECEC);
+      textColor = const Color(0xFFDC2626);
+      icon = Icons.cancel_rounded;
+      break;
+
+    default:
+      bgColor = Colors.grey.shade200;
+      textColor = Colors.grey.shade700;
+      icon = Icons.circle;
+  }
+
+  return Container(
+    padding: const EdgeInsets.symmetric(
+      horizontal: 12,
+      vertical: 8,
+    ),
+    decoration: BoxDecoration(
+      color: bgColor,
+      borderRadius: BorderRadius.circular(30),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+
+        Icon(
+          icon,
+          color: textColor,
+          size: 16,
+        ),
+
+        const SizedBox(width: 6),
+
+        Text(
+          status.toUpperCase(),
+          style: TextStyle(
+            color: textColor,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    ),
+  );
+}
   
 
  
@@ -2095,4 +2040,5 @@ class _LeadActions extends StatelessWidget {
         return const SizedBox.shrink();
     }
   }
+  
 }
