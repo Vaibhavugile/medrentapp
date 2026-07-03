@@ -144,6 +144,15 @@ class _AttendanceHistoryScreenState
         "date": dayId,
         "minutes": duration,
         "type": type,
+         "checkInServer": raw?["checkInServer"],
+  "checkOutServer": raw?["checkOutServer"],
+
+  // Photos
+  "checkInPhotoUrl": raw?["check-inPhotoUrl"],
+  "checkOutPhotoUrl": raw?["check-outPhotoUrl"],
+
+  // Optional
+  "note": raw?["note"] ?? "",
       });
     }
 
@@ -165,6 +174,19 @@ class _AttendanceHistoryScreenState
     final m = (mins % 60).toString().padLeft(2, '0');
     return "$h:$m";
   }
+  String formatTime(dynamic value) {
+  if (value == null) return "--";
+
+  final DateTime dateTime;
+
+  if (value is Timestamp) {
+    dateTime = value.toDate();
+  } else {
+    dateTime = DateTime.fromMillisecondsSinceEpoch(value);
+  }
+
+  return TimeOfDay.fromDateTime(dateTime).format(context);
+}
 
   double get salary {
     if (monthlySalary == 0) return 0;
@@ -396,24 +418,138 @@ Widget build(BuildContext context) {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
 
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      r["date"],
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "Hours: ${hhmm(r["minutes"])}",
-                      style: TextStyle(
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                  ],
-                ),
+               Column(
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+
+    Text(
+      r["date"],
+      style: const TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 15,
+      ),
+    ),
+
+    const SizedBox(height: 6),
+
+    Text(
+      "🟢 Check In : ${formatTime(r["checkInServer"])}",
+      style: TextStyle(color: Colors.grey[700]),
+    ),
+
+    const SizedBox(height: 2),
+
+    Text(
+      "🔴 Check Out : ${formatTime(r["checkOutServer"])}",
+      style: TextStyle(color: Colors.grey[700]),
+    ),
+
+    const SizedBox(height: 4),
+
+    Text(
+      "⏱ Hours : ${hhmm(r["minutes"])}",
+      style: TextStyle(
+        color: Colors.grey[600],
+      ),
+    ),
+    const SizedBox(height: 12),
+
+Row(
+  children: [
+
+    if (r["checkInPhotoUrl"] != null)
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            const Text(
+              "Check In",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            GestureDetector(
+              onTap: () {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => FullScreenImage(
+        imageUrl: r["checkInPhotoUrl"],
+      ),
+    ),
+  );
+},
+              Hero(
+  tag: r["checkInPhotoUrl"],
+  child: ClipRRect(
+    borderRadius: BorderRadius.circular(12),
+    child: Image.network(
+      r["checkInPhotoUrl"],
+      height: 90,
+      width: double.infinity,
+      fit: BoxFit.cover,
+    ),
+  ),
+),
+            ),
+          ],
+        ),
+      ),
+
+    if (r["checkInPhotoUrl"] != null &&
+        r["checkOutPhotoUrl"] != null)
+      const SizedBox(width: 12),
+
+    if (r["checkOutPhotoUrl"] != null)
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            const Text(
+              "Check Out",
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+
+            const SizedBox(height: 6),
+
+            GestureDetector(
+              onTap: () {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => FullScreenImage(
+        imageUrl: r["checkOutPhotoUrl"],
+      ),
+    ),
+  );
+},
+             Hero(
+  tag: r["checkOutPhotoUrl"],
+  child: ClipRRect(
+    borderRadius: BorderRadius.circular(12),
+    child: Image.network(
+      r["checkOutPhotoUrl"],
+      height: 90,
+      width: double.infinity,
+      fit: BoxFit.cover,
+    ),
+  ),
+),
+            ),
+          ],
+        ),
+      ),
+  ],
+),
+  ],
+),
 
                 Container(
                   padding: const EdgeInsets.symmetric(
