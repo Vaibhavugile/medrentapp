@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../marketing/leads_service.dart';
-
+import 'lead_details_screen.dart';
 class LeadsScreen extends StatefulWidget {
   final String userId;
   final String userName;
@@ -1777,7 +1777,19 @@ minLines: maxLines,
 
                       final l = items[i];
 final color = Colors.indigo;
-                      return Container(
+                      return InkWell(
+  borderRadius: BorderRadius.circular(14),
+  onTap: () {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => LeadDetailsScreen(
+        lead: l,
+      ),
+    ),
+  );
+},
+  child: Container(
                         margin: const EdgeInsets.only(bottom: 10),
                         decoration: BoxDecoration(
                           color: Theme.of(context).colorScheme.surface,
@@ -2042,6 +2054,7 @@ Text(
                             ),
                           ],
                         ),
+                      ),
                       );
                     },
                   ),
