@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+
 import '../screens/attendance_screen.dart';
 import 'screens/marketing_visits_screen.dart';
 import 'screens/leads_screen.dart';
 import 'screens/today_screen.dart';
 import '../screens/attendance_history_screen.dart';
+import 'screens/marketing_profile_screen.dart';
 
 class MarketingHome extends StatefulWidget {
-  final String userId;   // marketing DOC ID
+  final String userId; // marketing DOC ID
   final String userName;
 
   const MarketingHome({
@@ -28,34 +30,70 @@ class _MarketingHomeState extends State<MarketingHome> {
     super.initState();
 
     _pages = [
-      TodayScreen(userId: widget.userId, userName: widget.userName),
-      MarketingVisitsScreen(userId: widget.userId, userName: widget.userName),
-      LeadsScreen(userId: widget.userId, userName: widget.userName),
+      // =========================
+      // TODAY
+      // =========================
+      TodayScreen(
+        userId: widget.userId,
+        userName: widget.userName,
+      ),
+
+      // =========================
+      // VISITS
+      // =========================
+      MarketingVisitsScreen(
+        userId: widget.userId,
+        userName: widget.userName,
+      ),
+
+      // =========================
+      // LEADS
+      // =========================
+      LeadsScreen(
+        userId: widget.userId,
+        userName: widget.userName,
+      ),
+
+      // =========================
+      // ATTENDANCE
+      // =========================
       AttendanceScreen(
         userId: widget.userId,
         userName: widget.userName,
         collectionRoot: 'marketing',
       ),
-       AttendanceHistoryScreen(
-    userId: widget.userId,
-    collectionRoot: 'marketing',
-  ),
 
+      // =========================
+      // HISTORY
+      // =========================
+      AttendanceHistoryScreen(
+        userId: widget.userId,
+        collectionRoot: 'marketing',
+      ),
+
+      // =========================
+      // PROFILE
+      // =========================
+      MarketingProfileScreen(
+        marketingId: widget.userId,
+      ),
     ];
   }
 
   @override
   Widget build(BuildContext context) {
-    final firstLetter =
-        widget.userName.isNotEmpty ? widget.userName[0].toUpperCase() : "M";
+    final firstLetter = widget.userName.isNotEmpty
+        ? widget.userName[0].toUpperCase()
+        : "M";
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
 
-      /// PREMIUM APPBAR
+      // =========================
+      // PREMIUM APPBAR
+      // =========================
       appBar: AppBar(
         elevation: 0,
-
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -68,11 +106,9 @@ class _MarketingHomeState extends State<MarketingHome> {
             ),
           ),
         ),
-
         title: Row(
           children: [
-
-            /// Avatar
+            // Avatar
             CircleAvatar(
               radius: 18,
               backgroundColor: Colors.white,
@@ -103,20 +139,24 @@ class _MarketingHomeState extends State<MarketingHome> {
                     fontSize: 12,
                     color: Colors.white70,
                   ),
-                )
+                ),
               ],
-            )
+            ),
           ],
         ),
       ),
 
-      /// PAGE BODY
+      // =========================
+      // PAGE BODY
+      // =========================
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 250),
         child: _pages[_tab],
       ),
 
-      /// PREMIUM BOTTOM NAV
+      // =========================
+      // PREMIUM BOTTOM NAV
+      // =========================
       bottomNavigationBar: Container(
         margin: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -127,13 +167,12 @@ class _MarketingHomeState extends State<MarketingHome> {
               blurRadius: 18,
               color: Colors.black.withOpacity(.08),
               offset: const Offset(0, 6),
-            )
+            ),
           ],
         ),
         child: BottomNavigationBar(
           currentIndex: _tab,
           onTap: (i) => setState(() => _tab = i),
-
           backgroundColor: Colors.transparent,
           elevation: 0,
           type: BottomNavigationBarType.fixed,
@@ -142,7 +181,6 @@ class _MarketingHomeState extends State<MarketingHome> {
           unselectedItemColor: Colors.grey,
 
           items: const [
-
             BottomNavigationBarItem(
               icon: Icon(Icons.today),
               label: 'Today',
@@ -162,11 +200,16 @@ class _MarketingHomeState extends State<MarketingHome> {
               icon: Icon(Icons.fingerprint),
               label: 'Attendance',
             ),
-               BottomNavigationBarItem(
-            icon: Icon(Icons.history),
-            label: 'History',
-          ),
 
+            BottomNavigationBarItem(
+              icon: Icon(Icons.history),
+              label: 'History',
+            ),
+
+            BottomNavigationBarItem(
+              icon: Icon(Icons.person),
+              label: 'Profile',
+            ),
           ],
         ),
       ),

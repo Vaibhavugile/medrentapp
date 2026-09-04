@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart'; // <-- secure storage
-
+import 'inactive_account_screen.dart';
 import '../marketing/marketing_home.dart';
 import 'home_shell.dart';
 import 'signup_screen.dart';
@@ -137,93 +137,219 @@ Future<void> _routeAfterLogin(BuildContext context) async {
   final uid = FirebaseAuth.instance.currentUser!.uid;
   final db = FirebaseFirestore.instance;
 
-  // ✅ STEP 1: GET ROLE
-  final userDoc = await db.collection('users').doc(uid).get();
-  final role = userDoc.data()?['role'];
+  try {
+    // =========================================================
+    // STEP 1: GET ROLE FROM users/{uid}
+    // =========================================================
 
-  print("🟢 USER ROLE => $role");
-
-  // ================= DRIVER =================
-  if (role == 'driver') {
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const HomeShell()),
-    );
-    return;
-  }
-
-  // ================= MARKETING =================
-  if (role == 'marketing') {
-
-    // by authUid
-    final marketingByAuth = await db
-        .collection('marketing')
-        .where('authUid', isEqualTo: uid)
-        .where('active', isEqualTo: true)
-        .limit(1)
+    final userDoc = await db
+        .collection('users')
+        .doc(uid)
         .get();
 
-    if (marketingByAuth.docs.isNotEmpty) {
-      final doc = marketingByAuth.docs.first;
-      final name = (doc.data()['name'] ?? 'Marketing').toString();
+    if (!userDoc.exists) {
+      throw Exception("User profile not found.");
+    }
+
+    final userData = userDoc.data() ?? {};
+
+    final role = (userData['role'] ?? '')
+        .toString()
+        .toLowerCase()
+        .trim();
+
+    print("🟢 USER ROLE => $role");
+
+    // =========================================================
+    // STEP 2: FIND THE CORRESPONDING PROFILE
+    // =========================================================
+
+    String? collectionName;
+    String? profileId;
+    Map<String, dynamic>? profileData;
+
+    if (role == 'driver') {
+      collectionName = 'drivers';
+    } else if (role == 'marketing') {
+      collectionName = 'marketing';
+    } else if (role == 'staff') {
+      collectionName = 'staff';
+    } else {
+      // users / employees / sales / accounts / admin / etc.
+      collectionName = 'users';
+    }
+
+    // =========================================================
+    // DRIVER
+    // =========================================================
+
+    if (role == 'driver') {
+      final driverDoc = await db
+          .collection('drivers')
+          .where('authUid', isEqualTo: uid)
+          .limit(1)
+          .get();
+
+      if (driverDoc.docs.isNotEmpty) {
+        final doc = driverDoc.docs.first;
+
+        profileId = doc.id;
+        profileData = doc.data();
+      }
+    }
+
+    // =========================================================
+    // MARKETING
+    // =========================================================
+
+    else if (role == 'marketing') {
+      final marketingDoc = await db
+          .collection('marketing')
+          .where('authUid', isEqualTo: uid)
+          .limit(1)
+          .get();
+
+      if (marketingDoc.docs.isNotEmpty) {
+        final doc = marketingDoc.docs.first;
+
+        profileId = doc.id;
+        profileData = doc.data();
+      }
+    }
+
+    // =========================================================
+    // STAFF
+    // =========================================================
+
+    else if (role == 'staff') {
+      final staffDoc = await db
+          .collection('staff')
+          .where('authUid', isEqualTo: uid)
+          .limit(1)
+          .get();
+
+      if (staffDoc.docs.isNotEmpty) {
+        final doc = staffDoc.docs.first;
+
+        profileId = doc.id;
+        profileData = doc.data();
+      }
+    }
+
+    // =========================================================
+    // OTHER USERS
+    // =========================================================
+
+    else {
+      profileId = uid;
+      profileData = userData;
+    }
+
+    // =========================================================
+    // STEP 3: CHECK ACTIVE / INACTIVE
+    // =========================================================
+
+    final bool isActive =
+        profileData?['active'] == true;
+
+    print(
+      "🟢 ROLE: $role | ACTIVE: $isActive | PROFILE: $profileId",
+    );
+
+    // =========================================================
+    // INACTIVE → INACTIVE SCREEN
+    // =========================================================
+
+    if (!isActive) {
+      if (!mounted) return;
+
+      await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const InactiveAccountScreen(),
+        ),
+      );
+
+      return;
+    }
+
+    // =========================================================
+    // ACTIVE → ROUTE TO CORRECT HOME
+    // =========================================================
+
+    if (!mounted) return;
+
+    // DRIVER
+    if (role == 'driver') {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const HomeShell(),
+        ),
+      );
+      return;
+    }
+
+    // MARKETING
+    if (role == 'marketing') {
+      final name =
+          (profileData?['name'] ?? 'Marketing').toString();
+
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => MarketingHome(
-            userId: doc.id,
+            userId: profileId!,
             userName: name,
           ),
         ),
       );
+
       return;
     }
-  }
 
-  // ================= STAFF =================
-  if (role == 'staff') {
+    // STAFF
+    if (role == 'staff') {
+      final name =
+          (profileData?['name'] ?? 'Nurse').toString();
 
-    final staffByAuth = await db
-        .collection('staff')
-        .where('authUid', isEqualTo: uid)
-        .where('active', isEqualTo: true)
-        .limit(1)
-        .get();
-
-    if (staffByAuth.docs.isNotEmpty) {
-      final doc = staffByAuth.docs.first;
-      final name = (doc.data()['name'] ?? 'Nurse').toString();
-
-      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => NurseHomeShell(
-            staffId: doc.id,
+            staffId: profileId!,
             staffName: name,
           ),
         ),
       );
+
       return;
     }
+
+    // ALL OTHER ACTIVE USERS
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const UserHomeShell(),
+      ),
+    );
+  } catch (e) {
+    print("🔴 ROUTING ERROR: $e");
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          "Unable to verify account status: $e",
+        ),
+      ),
+    );
   }
-
-  // ================= OTHER ROLES =================
-  // sales / admin / accounts / etc
-
-  print("🟡 Non-operational role → $role");
-
-  if (!mounted) return;
-
-  Navigator.pushReplacement(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const UserHomeShell(), // 🔁 later you can change
-    ),
-  );
 }
   Future<void> _saveCredentials(bool remember, String email, String pass) async {
     try {

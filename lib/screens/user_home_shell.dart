@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'attendance_screen.dart';
 import 'attendance_history_screen.dart';
-
+import 'user_profile_screen.dart';
 class UserHomeShell extends StatefulWidget {
   const UserHomeShell({super.key});
 
@@ -47,17 +47,19 @@ class _UserHomeShellState extends State<UserHomeShell> {
       loading = false;
 
       _pages = [
-        AttendanceScreen(
-          userId: uid,
-          userName: userName,
-          collectionRoot: 'users',
-        ),
-        AttendanceHistoryScreen(
-          userId: uid,
-          collectionRoot: 'users',
-        ),
-        const _ProfilePlaceholder(),
-      ];
+  AttendanceScreen(
+    userId: uid,
+    userName: userName,
+    collectionRoot: 'users',
+  ),
+  AttendanceHistoryScreen(
+    userId: uid,
+    collectionRoot: 'users',
+  ),
+  UserProfileScreen(
+    userId: uid,
+  ),
+];
     });
   }
 
@@ -169,20 +171,20 @@ class _UserHomeShellState extends State<UserHomeShell> {
           unselectedItemColor: Colors.grey,
           type: BottomNavigationBarType.fixed,
 
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.fingerprint),
-              label: 'Attendance',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              label: 'History',
-            ),
-            // BottomNavigationBarItem(
-            //   icon: Icon(Icons.person),
-            //   label: 'Profile',
-            // ),
-          ],
+         items: const [
+  BottomNavigationBarItem(
+    icon: Icon(Icons.fingerprint),
+    label: 'Attendance',
+  ),
+  BottomNavigationBarItem(
+    icon: Icon(Icons.history),
+    label: 'History',
+  ),
+  BottomNavigationBarItem(
+    icon: Icon(Icons.person),
+    label: 'Profile',
+  ),
+],
         ),
       ),
     );

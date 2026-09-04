@@ -1,8 +1,15 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
 
 import 'full_screen_image.dart';
-
 class AttendanceHistoryScreen extends StatefulWidget {
   final String userId;
   final String collectionRoot;
@@ -54,7 +61,7 @@ class _AttendanceHistoryScreenState
   //---------------------------------------------------------
 
   double monthlySalary = 0;
-
+String? salarySlipUrl;
   //---------------------------------------------------------
   // Filter
   //---------------------------------------------------------
@@ -191,6 +198,13 @@ class _AttendanceHistoryScreenState
 
     monthlySalary =
         (userDoc.data()?['salaryMonthly'] ?? 0).toDouble();
+        // Load salary slip for selected month
+final salarySlipDoc = await db
+    .collection('payrollStatus')
+    .doc('${widget.userId}_$monthKey')
+    .get();
+
+salarySlipUrl = salarySlipDoc.data()?['salarySlipUrl'];
 
     final snap = await db
         .collection(widget.collectionRoot)
@@ -325,6 +339,7 @@ class _AttendanceHistoryScreenState
     return "$h:$m";
   }
 
+
   //---------------------------------------------------------
   // Salary Calculator
   //---------------------------------------------------------
@@ -337,11 +352,130 @@ class _AttendanceHistoryScreenState
     return ((present + grace) * perDay) +
         (half * (perDay / 2));
   }
+bool isSunday(String dateString) {
+  final parts = dateString.split("-");
 
+  final date = DateTime(
+    int.parse(parts[0]),
+    int.parse(parts[1]),
+    int.parse(parts[2]),
+  );
+
+  return date.weekday == DateTime.sunday;
+}
   //---------------------------------------------------------
   // Month Picker
   //---------------------------------------------------------
+void openSalarySlip() {
+  if (salarySlipUrl == null || salarySlipUrl!.isEmpty) {
+    return;
+  }
 
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => Scaffold(
+        appBar: AppBar(
+          title: const Text("Salary Slip"),
+          actions: [
+            IconButton(
+              tooltip: 'Download PDF',
+              icon: const Icon(Icons.download),
+              onPressed: downloadSalarySlip,
+            ),
+          ],
+        ),
+        body: SfPdfViewer.network(
+          salarySlipUrl!,
+        ),
+      ),
+    ),
+  );
+}
+Future<void> downloadSalarySlip() async {
+  if (salarySlipUrl == null || salarySlipUrl!.isEmpty) {
+    return;
+  }
+
+  try {
+    // Show downloading message
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Downloading salary slip...'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+
+    final response = await http.get(
+      Uri.parse(salarySlipUrl!),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Download failed: ${response.statusCode}',
+      );
+    }
+
+    // Android public Downloads directory
+    final downloadsDir = Directory(
+      '/storage/emulated/0/Download',
+    );
+
+    if (!await downloadsDir.exists()) {
+      await downloadsDir.create(
+        recursive: true,
+      );
+    }
+
+    final fileName = 'Salary_Slip_$monthKey.pdf';
+
+    final file = File(
+      '${downloadsDir.path}/$fileName',
+    );
+
+    await file.writeAsBytes(
+      response.bodyBytes,
+      flush: true,
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Salary slip saved to Downloads/$fileName',
+        ),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'OPEN',
+          onPressed: () {
+            OpenFilex.open(file.path);
+          },
+        ),
+      ),
+    );
+  } catch (e) {
+    debugPrint(
+      'Salary slip download error: $e',
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Failed to download salary slip',
+        ),
+      ),
+    );
+  }
+}
   Future<void> pickMonth() async {
     final now = DateTime.now();
 
@@ -593,6 +727,23 @@ Widget build(BuildContext context) {
                   "Base Monthly Salary",
                   "₹${monthlySalary.round()}",
                 ),
+                const SizedBox(height: 16),
+
+if (salarySlipUrl != null && salarySlipUrl!.isNotEmpty)
+  SizedBox(
+    width: double.infinity,
+    child: ElevatedButton.icon(
+      onPressed: openSalarySlip,
+      icon: const Icon(Icons.picture_as_pdf),
+      label: const Text("View Salary Slip"),
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    ),
+  ),
               ],
             ),
           ),
@@ -619,16 +770,26 @@ Widget build(BuildContext context) {
 
           ...filteredRecords.map((r) {
 
-            final color = getTypeColor(r["type"]);
+           final sunday = isSunday(r["date"]);
+final color = sunday
+    ? Colors.red
+    : getTypeColor(r["type"]);
 
-            return Card(
-              elevation: 3,
-              margin:
-                  const EdgeInsets.only(bottom: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius:
-                    BorderRadius.circular(cardRadius),
-              ),
+           return Card(
+  elevation: 3,
+  margin: const EdgeInsets.only(bottom: 16),
+  color: sunday
+      ? Colors.red.withOpacity(0.06)
+      : Colors.white,
+  shape: RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(cardRadius),
+    side: BorderSide(
+      color: sunday
+          ? Colors.red.withOpacity(0.35)
+          : Colors.transparent,
+      width: sunday ? 1.2 : 0,
+    ),
+  ),
               child: Padding(
                 padding: EdgeInsets.all(pagePadding),
 
@@ -643,14 +804,14 @@ Widget build(BuildContext context) {
                           CrossAxisAlignment.start,
                       children: [
 
-                        Text(
-                          r["date"],
-                          style: TextStyle(
-                            fontSize: titleFont,
-                            fontWeight:
-                                FontWeight.bold,
-                          ),
-                        ),
+                       Text(
+  sunday ? "${r["date"]} • SUNDAY" : r["date"],
+  style: TextStyle(
+    fontSize: titleFont,
+    fontWeight: FontWeight.bold,
+    color: sunday ? Colors.red : Colors.black87,
+  ),
+),
 
                         const SizedBox(height: 10),
 

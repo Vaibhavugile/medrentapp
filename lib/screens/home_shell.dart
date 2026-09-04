@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import '../marketing/marketing_home.dart';
-
+import 'driver_profile_screen.dart';
 import '../services/driver_service.dart';
 import 'attendance_screen.dart';
 import 'link_profile_screen.dart';
@@ -166,7 +166,10 @@ Future<void> _syncDriverDeviceToken(String driverId) async {
     userId: d.id,
     collectionRoot: 'drivers',
   ),
-    const _Placeholder(title: 'Profile'),
+   DriverProfileScreen(
+  driverId: d.id,
+  driverData: d.data,
+),
   ];
 });
 
