@@ -229,69 +229,198 @@ salarySlipUrl = salarySlipDoc.data()?['salarySlipUrl'];
     int graceUsed = 0;
 
     for (final dayId in days) {
-      final raw = attMap[dayId];
+  final raw = attMap[dayId];
 
-      int duration = 0;
+  // =====================================================
+  // NO ATTENDANCE DOCUMENT
+  // =====================================================
 
-      if (raw != null) {
-        final checkIn =
-            raw['checkInServer'] ?? raw['checkInMs'];
+  if (raw == null) {
+    final duration = 0;
 
-        final checkOut =
-            raw['checkOutServer'] ?? raw['checkOutMs'];
+    String type = "absent";
+    a++;
 
-        if (checkIn != null) {
-          final start = checkIn is Timestamp
-              ? checkIn.toDate()
-              : DateTime.fromMillisecondsSinceEpoch(
-                  checkIn);
+    mins += duration;
 
-          final end = checkOut != null
-              ? (checkOut is Timestamp
-                  ? checkOut.toDate()
-                  : DateTime.fromMillisecondsSinceEpoch(
-                      checkOut))
-              : DateTime.now();
+    list.add({
+      "date": dayId,
+      "shift": 1,
+      "minutes": duration,
+      "type": type,
+      "checkInServer": null,
+      "checkOutServer": null,
+      "checkInPhotoUrl": null,
+      "checkOutPhotoUrl": null,
+      "note": "",
+    });
 
-          duration = end.difference(start).inMinutes;
-        }
-      }
+    continue;
+  }
 
-      String type;
+  // =====================================================
+  // SHIFT 1
+  // =====================================================
 
-      if (duration >= 525) {
-        type = "present";
-        p++;
-      } else if (duration >= 480) {
-        if (graceUsed < 2) {
-          graceUsed++;
-          type = "grace";
-          g++;
-        } else {
-          type = "half";
-          h++;
-        }
-      } else if (duration >= 240) {
-        type = "half";
-        h++;
-      } else {
-        type = "absent";
-        a++;
-      }
+  final Map<String, dynamic>? shift1 =
+      raw['shifts']?['1'] != null
+          ? Map<String, dynamic>.from(raw['shifts']['1'])
+          : null;
 
-      mins += duration;
+  final shift1CheckIn =
+      shift1?['checkInServer'] ??
+      shift1?['checkInMs'] ??
+      raw['checkInServer'] ??
+      raw['checkInMs'];
 
-      list.add({
-        "date": dayId,
-        "minutes": duration,
-        "type": type,
-        "checkInServer": raw?["checkInServer"],
-        "checkOutServer": raw?["checkOutServer"],
-        "checkInPhotoUrl": raw?["check-inPhotoUrl"],
-        "checkOutPhotoUrl": raw?["check-outPhotoUrl"],
-        "note": raw?["note"] ?? "",
-      });
+  final shift1CheckOut =
+      shift1?['checkOutServer'] ??
+      shift1?['checkOutMs'] ??
+      raw['checkOutServer'] ??
+      raw['checkOutMs'];
+
+  int shift1Duration = 0;
+
+  if (shift1CheckIn != null) {
+    final start = shift1CheckIn is Timestamp
+        ? shift1CheckIn.toDate()
+        : DateTime.fromMillisecondsSinceEpoch(
+            shift1CheckIn,
+          );
+
+    final end = shift1CheckOut != null
+        ? (shift1CheckOut is Timestamp
+            ? shift1CheckOut.toDate()
+            : DateTime.fromMillisecondsSinceEpoch(
+                shift1CheckOut,
+              ))
+        : DateTime.now();
+
+    shift1Duration = end.difference(start).inMinutes;
+  }
+
+  String shift1Type;
+
+  if (shift1Duration >= 525) {
+    shift1Type = "present";
+    p++;
+  } else if (shift1Duration >= 480) {
+    if (graceUsed < 2) {
+      graceUsed++;
+      shift1Type = "grace";
+      g++;
+    } else {
+      shift1Type = "half";
+      h++;
     }
+  } else if (shift1Duration >= 240) {
+    shift1Type = "half";
+    h++;
+  } else {
+    shift1Type = "absent";
+    a++;
+  }
+
+  mins += shift1Duration;
+
+  list.add({
+    "date": dayId,
+    "shift": 1,
+    "minutes": shift1Duration,
+    "type": shift1Type,
+    "checkInServer": shift1CheckIn,
+    "checkOutServer": shift1CheckOut,
+    "checkInPhotoUrl":
+        shift1?['checkInPhotoUrl'] ??
+        raw['check-inPhotoUrl'],
+    "checkOutPhotoUrl":
+        shift1?['checkOutPhotoUrl'] ??
+        raw['check-outPhotoUrl'],
+    "note":
+        shift1?['note'] ??
+        raw['note'] ??
+        "",
+  });
+
+  // =====================================================
+  // SHIFT 2
+  // =====================================================
+
+  final Map<String, dynamic>? shift2 =
+      raw['shifts']?['2'] != null
+          ? Map<String, dynamic>.from(raw['shifts']['2'])
+          : null;
+
+  if (shift2 != null) {
+    final shift2CheckIn =
+        shift2['checkInServer'] ??
+        shift2['checkInMs'];
+
+    final shift2CheckOut =
+        shift2['checkOutServer'] ??
+        shift2['checkOutMs'];
+
+    int shift2Duration = 0;
+
+    if (shift2CheckIn != null) {
+      final start = shift2CheckIn is Timestamp
+          ? shift2CheckIn.toDate()
+          : DateTime.fromMillisecondsSinceEpoch(
+              shift2CheckIn,
+            );
+
+      final end = shift2CheckOut != null
+          ? (shift2CheckOut is Timestamp
+              ? shift2CheckOut.toDate()
+              : DateTime.fromMillisecondsSinceEpoch(
+                  shift2CheckOut,
+                ))
+          : DateTime.now();
+
+      shift2Duration = end.difference(start).inMinutes;
+    }
+
+    String shift2Type;
+
+    if (shift2Duration >= 525) {
+      shift2Type = "present";
+      p++;
+    } else if (shift2Duration >= 480) {
+      if (graceUsed < 2) {
+        graceUsed++;
+        shift2Type = "grace";
+        g++;
+      } else {
+        shift2Type = "half";
+        h++;
+      }
+    } else if (shift2Duration >= 240) {
+      shift2Type = "half";
+      h++;
+    } else {
+      shift2Type = "absent";
+      a++;
+    }
+
+    mins += shift2Duration;
+
+    list.add({
+      "date": dayId,
+      "shift": 2,
+      "minutes": shift2Duration,
+      "type": shift2Type,
+      "checkInServer": shift2CheckIn,
+      "checkOutServer": shift2CheckOut,
+      "checkInPhotoUrl":
+          shift2['checkInPhotoUrl'] ??
+          "",
+      "checkOutPhotoUrl":
+          shift2['checkOutPhotoUrl'] ??
+          "",
+      "note": shift2['note'] ?? "",
+    });
+  }
+}
 
     list.sort((a, b) => b["date"].compareTo(a["date"]));
 
@@ -812,7 +941,26 @@ final color = sunday
     color: sunday ? Colors.red : Colors.black87,
   ),
 ),
+const SizedBox(height: 6),
 
+Container(
+  padding: const EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: 5,
+  ),
+  decoration: BoxDecoration(
+    color: Colors.blue.withOpacity(.10),
+    borderRadius: BorderRadius.circular(20),
+  ),
+  child: Text(
+    "Shift ${r["shift"]}",
+    style: TextStyle(
+      fontSize: bodyFont,
+      fontWeight: FontWeight.w600,
+      color: Colors.blue,
+    ),
+  ),
+),
                         const SizedBox(height: 10),
 
                         Wrap(
