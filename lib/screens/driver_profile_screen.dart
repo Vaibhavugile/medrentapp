@@ -7,7 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class DriverProfileScreen extends StatefulWidget {
   final String driverId;
   final Map<String, dynamic> driverData;
-
   const DriverProfileScreen({
     super.key,
     required this.driverId,
