@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../marketing/leads_service.dart';
 import 'lead_details_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 class LeadsScreen extends StatefulWidget {
   final String userId;
   final String userName;
@@ -27,7 +28,8 @@ class _LeadsScreenState extends State<LeadsScreen> {
 
 String _filterType = 'all';
 DateTimeRange? _dateRange;
-
+List<Map<String, dynamic>> _leadSources = [];
+bool _loadingLeadSources = false;
 bool _duplicatesOnly = false;
   Map<String, dynamic> _draft = {};
 
@@ -44,17 +46,21 @@ bool _duplicatesOnly = false;
   String _status = 'new';
 String _type = '';
  
-  @override
-  void initState() {
-    super.initState();
+@override
+void initState() {
+  super.initState();
 
-    _sub = _svc.streamMyLeads(widget.userId).listen((list) {
-      setState(() {
-        _all = list;
-        loading = false;
-      });
+  _loadLeadSources();
+
+  _sub = _svc.streamMyLeads(widget.userId).listen((list) {
+    if (!mounted) return;
+
+    setState(() {
+      _all = list;
+      loading = false;
     });
-  }
+  });
+}
 
   @override
   void dispose() {
@@ -184,6 +190,57 @@ if (_dateRange != null) {
 
   return data;
 }
+Future<void> _loadLeadSources() async {
+  if (_loadingLeadSources) return;
+
+  setState(() {
+    _loadingLeadSources = true;
+  });
+
+  try {
+    final snap = await FirebaseFirestore.instance
+        .collection('leadSources')
+        .where('active', isEqualTo: true)
+        .get();
+
+    final sources = snap.docs
+        .map((doc) {
+          final data = doc.data();
+
+          return {
+            'id': doc.id,
+            'name': data['name'] ?? '',
+            'active': data['active'] ?? true,
+          };
+        })
+        .where((source) => source['name'].toString().trim().isNotEmpty)
+        .toList();
+
+    sources.sort(
+      (a, b) => a['name']
+          .toString()
+          .toLowerCase()
+          .compareTo(
+            b['name'].toString().toLowerCase(),
+          ),
+    );
+
+    if (!mounted) return;
+
+    setState(() {
+      _leadSources = sources;
+    });
+  } catch (e) {
+    debugPrint('Load lead sources error: $e');
+  } finally {
+    if (mounted) {
+      setState(() {
+        _loadingLeadSources = false;
+      });
+    }
+  }
+}
+
 void _saveDraft() {
   _draft = {
     'customer': _customerCtrl.text,
@@ -795,19 +852,7 @@ const SizedBox(
 
 
 
- _premiumField(
-
-    controller: _sourceCtrl,
-
-    label: "Lead Source",
-
-    icon: Icons.campaign_outlined,
-
-    maxLines: 3,
-  ),
-  const SizedBox(
-  height: 16,
-),
+ _buildLeadSourceField(setModalState),
 
 
   _premiumField(
@@ -1392,6 +1437,662 @@ minLines: maxLines,
                   : 18,
         ),
       ),
+    ),
+  );
+}
+
+Widget _buildLeadSourceField(
+  StateSetter setModalState,
+) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Lead Source',
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF374151),
+        ),
+      ),
+
+      const SizedBox(height: 8),
+
+      GestureDetector(
+        onTap: () async {
+          final selected = await _showLeadSourcePicker();
+
+          if (selected != null && mounted) {
+            setModalState(() {
+              _sourceCtrl.text = selected;
+              _saveDraft();
+            });
+          }
+        },
+        child: AbsorbPointer(
+          child: TextField(
+            controller: _sourceCtrl,
+            maxLines: 1,
+            readOnly: true,
+            decoration: InputDecoration(
+              hintText: 'Select or create lead source',
+              hintStyle: const TextStyle(
+                color: Color(0xFF9CA3AF),
+                fontSize: 14,
+              ),
+
+              prefixIcon: Container(
+                margin: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.campaign_outlined,
+                  size: 19,
+                  color: Color(0xFF2563EB),
+                ),
+              ),
+
+              suffixIcon: const Icon(
+                Icons.keyboard_arrow_down_rounded,
+                color: Color(0xFF64748B),
+              ),
+
+              filled: true,
+              fillColor: Colors.white,
+
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 16,
+              ),
+
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: const BorderSide(
+                  color: Color(0xFFE5E7EB),
+                ),
+              ),
+
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: const BorderSide(
+                  color: Color(0xFFE5E7EB),
+                ),
+              ),
+
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(18),
+                borderSide: const BorderSide(
+                  color: Color(0xFF2563EB),
+                  width: 1.5,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+
+      if (_sourceCtrl.text.trim().isNotEmpty) ...[
+        const SizedBox(height: 8),
+
+        Row(
+          children: [
+            const Icon(
+              Icons.check_circle_rounded,
+              size: 15,
+              color: Color(0xFF059669),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                _sourceCtrl.text.trim(),
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF059669),
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ],
+    ],
+  );
+}
+Future<String?> _showLeadSourcePicker() async {
+  final searchCtrl = TextEditingController(
+    text: _sourceCtrl.text.trim(),
+  );
+
+  List<Map<String, dynamic>> filteredSources =
+      List<Map<String, dynamic>>.from(_leadSources);
+
+  return showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) {
+      return StatefulBuilder(
+        builder: (context, setSheetState) {
+          final query = searchCtrl.text.trim().toLowerCase();
+
+          filteredSources = _leadSources.where((source) {
+            final name = source['name']
+                    ?.toString()
+                    .trim()
+                    .toLowerCase() ??
+                '';
+
+            return query.isEmpty || name.contains(query);
+          }).toList();
+
+          final exactExists = _leadSources.any(
+            (source) {
+              final name = source['name']
+                      ?.toString()
+                      .trim()
+                      .toLowerCase() ??
+                  '';
+
+              return name == query && query.isNotEmpty;
+            },
+          );
+
+          return SafeArea(
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.vertical(
+                  top: Radius.circular(30),
+                ),
+              ),
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context)
+                      .viewInsets
+                      .bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 12),
+
+                    // Handle
+                    Container(
+                      width: 46,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD1D5DB),
+                        borderRadius:
+                            BorderRadius.circular(100),
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // Header
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEFF6FF),
+                              borderRadius:
+                                  BorderRadius.circular(14),
+                            ),
+                            child: const Icon(
+                              Icons.campaign_rounded,
+                              color: Color(0xFF2563EB),
+                            ),
+                          ),
+
+                          const SizedBox(width: 12),
+
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment:
+                                  CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Lead Source',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight:
+                                        FontWeight.w800,
+                                    color:
+                                        Color(0xFF111827),
+                                  ),
+                                ),
+                                SizedBox(height: 3),
+                                Text(
+                                  'Select an existing source or create a new one',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color:
+                                        Color(0xFF6B7280),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          IconButton(
+                            onPressed: () =>
+                                Navigator.pop(context),
+                            icon: const Icon(
+                              Icons.close_rounded,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // Search
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                      ),
+                      child: TextField(
+                        controller: searchCtrl,
+                        autofocus: true,
+                        onChanged: (_) {
+                          setSheetState(() {});
+                        },
+                        decoration: InputDecoration(
+                          hintText:
+                              'Search or type new source...',
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            color: Color(0xFF2563EB),
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          border: OutlineInputBorder(
+                            borderRadius:
+                                BorderRadius.circular(16),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE5E7EB),
+                            ),
+                          ),
+                          enabledBorder:
+                              OutlineInputBorder(
+                            borderRadius:
+                                BorderRadius.circular(16),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFE5E7EB),
+                            ),
+                          ),
+                          focusedBorder:
+                              OutlineInputBorder(
+                            borderRadius:
+                                BorderRadius.circular(16),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF2563EB),
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Flexible(
+                      child: ListView(
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.fromLTRB(
+                          20,
+                          0,
+                          20,
+                          24,
+                        ),
+                        children: [
+                          if (_loadingLeadSources)
+                            const Padding(
+                              padding: EdgeInsets.all(30),
+                              child: Center(
+                                child:
+                                    CircularProgressIndicator(
+                                  color: Color(0xFF2563EB),
+                                ),
+                              ),
+                            ),
+
+                          if (!_loadingLeadSources &&
+                              filteredSources.isEmpty &&
+                              query.isEmpty)
+                            _buildSourceEmptyState(),
+
+                          // Existing sources
+                          ...filteredSources.map(
+                            (source) {
+                              final name =
+                                  source['name']
+                                          ?.toString()
+                                          .trim() ??
+                                      '';
+
+                              final selected =
+                                  _sourceCtrl.text
+                                          .trim()
+                                          .toLowerCase() ==
+                                      name.toLowerCase();
+
+                              return Container(
+                                margin:
+                                    const EdgeInsets.only(
+                                  bottom: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius:
+                                      BorderRadius.circular(
+                                    16,
+                                  ),
+                                  border: Border.all(
+                                    color: selected
+                                        ? const Color(
+                                            0xFF2563EB,
+                                          )
+                                        : const Color(
+                                            0xFFE5E7EB,
+                                          ),
+                                  ),
+                                ),
+                                child: ListTile(
+                                  onTap: () {
+                                    Navigator.pop(
+                                      context,
+                                      name,
+                                    );
+                                  },
+                                  leading: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration:
+                                        BoxDecoration(
+                                      color: selected
+                                          ? const Color(
+                                              0xFF2563EB,
+                                            )
+                                          : const Color(
+                                              0xFFEFF6FF,
+                                            ),
+                                      borderRadius:
+                                          BorderRadius
+                                              .circular(
+                                        12,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      selected
+                                          ? Icons.check_rounded
+                                          : Icons
+                                              .campaign_outlined,
+                                      color: selected
+                                          ? Colors.white
+                                          : const Color(
+                                              0xFF2563EB,
+                                            ),
+                                    ),
+                                  ),
+                                  title: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight:
+                                          FontWeight.w700,
+                                      color:
+                                          Color(0xFF111827),
+                                    ),
+                                  ),
+                                  trailing: selected
+                                      ? const Icon(
+                                          Icons
+                                              .check_circle_rounded,
+                                          color:
+                                              Color(0xFF2563EB),
+                                        )
+                                      : const Icon(
+                                          Icons
+                                              .chevron_right_rounded,
+                                          color:
+                                              Color(0xFF9CA3AF),
+                                        ),
+                                ),
+                              );
+                            },
+                          ),
+
+                          // Create new source
+                          if (query.isNotEmpty &&
+                              !exactExists)
+                            _buildCreateSourceTile(
+                              context,
+                              searchCtrl.text.trim(),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+Widget _buildCreateSourceTile(
+  BuildContext context,
+  String sourceName,
+) {
+  return Container(
+    margin: const EdgeInsets.only(top: 6),
+    decoration: BoxDecoration(
+      color: const Color(0xFFEFF6FF),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(
+        color: const Color(0xFFBFDBFE),
+      ),
+    ),
+    child: ListTile(
+      onTap: () async {
+        final newSource = sourceName.trim();
+
+        if (newSource.isEmpty) return;
+
+        try {
+          final normalized = newSource.toLowerCase();
+
+          // Check again against Firestore
+          final existingSnapshot =
+              await FirebaseFirestore.instance
+                  .collection('leadSources')
+                  .where(
+                    'active',
+                    isEqualTo: true,
+                  )
+                  .get();
+
+          String? existingName;
+
+          for (final doc in existingSnapshot.docs) {
+            final name =
+                doc.data()['name']
+                        ?.toString()
+                        .trim() ??
+                    '';
+
+            if (name.toLowerCase() == normalized) {
+              existingName = name;
+              break;
+            }
+          }
+
+          // Already exists
+          if (existingName != null) {
+            if (!mounted) return;
+
+            setState(() {
+              _leadSources = _leadSources;
+            });
+
+            Navigator.pop(
+              context,
+              existingName,
+            );
+
+            return;
+          }
+
+          // Create new source
+          final ref = await FirebaseFirestore.instance
+              .collection('leadSources')
+              .add({
+            'name': newSource,
+            'active': true,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+
+          // Add locally
+          if (mounted) {
+            setState(() {
+              _leadSources = [
+                ..._leadSources,
+                {
+                  'id': ref.id,
+                  'name': newSource,
+                  'active': true,
+                },
+              ];
+
+              _leadSources.sort(
+                (a, b) => a['name']
+                    .toString()
+                    .toLowerCase()
+                    .compareTo(
+                      b['name']
+                          .toString()
+                          .toLowerCase(),
+                    ),
+              );
+            });
+
+            Navigator.pop(
+              context,
+              newSource,
+            );
+          }
+        } catch (e) {
+          debugPrint(
+            'Create lead source error: $e',
+          );
+
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context)
+              .showSnackBar(
+            SnackBar(
+              behavior:
+                  SnackBarBehavior.floating,
+              backgroundColor:
+                  const Color(0xFFDC2626),
+              shape: RoundedRectangleBorder(
+                borderRadius:
+                    BorderRadius.circular(14),
+              ),
+              content: const Text(
+                'Failed to create lead source',
+              ),
+            ),
+          );
+        }
+      },
+      leading: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: const Color(0xFF2563EB),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Icon(
+          Icons.add_rounded,
+          color: Colors.white,
+        ),
+      ),
+      title: const Text(
+        'Create New Source',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+          color: Color(0xFF1D4ED8),
+        ),
+      ),
+      subtitle: Text(
+        '"$sourceName"',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Color(0xFF64748B),
+        ),
+      ),
+      trailing: const Icon(
+        Icons.arrow_forward_ios_rounded,
+        size: 16,
+        color: Color(0xFF2563EB),
+      ),
+    ),
+  );
+}
+Widget _buildSourceEmptyState() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(
+      vertical: 30,
+    ),
+    child: Column(
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: const Icon(
+            Icons.campaign_outlined,
+            size: 28,
+            color: Color(0xFF2563EB),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'No lead sources yet',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Type a source above to create one.',
+          style: TextStyle(
+            fontSize: 12,
+            color: Color(0xFF6B7280),
+          ),
+        ),
+      ],
     ),
   );
 }
