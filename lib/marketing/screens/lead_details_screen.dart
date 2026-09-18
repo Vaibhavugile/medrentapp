@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import '../leads_service.dart';
 import 'equipment_order_details_screen.dart';
 import 'nursing_order_details_screen.dart';
+import 'requirement_details_screen.dart';
+import 'quotation_details_screen.dart';
 
-/// Premium, read-only Lead Details screen.
+/// Premium Lead Details screen.
 ///
 /// Relationship:
 /// Lead
@@ -15,6 +17,10 @@ import 'nursing_order_details_screen.dart';
 ///       ├─ Equipment: orders.where(leadId)
 ///       └─ Nursing/Caretaker: nursingOrders.where(leadId)
 ///             └─ Staff: staffAssignments.where(orderId)
+///
+/// Requirements and quotations now open their dedicated premium detail screens
+/// instead of the old generic data-map bottom sheets.
+
 class LeadDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> lead;
 
@@ -881,39 +887,76 @@ class _LeadDetailsScreenState extends State<LeadDetailsScreen> {
   // REQUIREMENTS
   // ============================================================
 
-  void _showRequirements(BuildContext context) {
-    _showSheet(
+  Future<void> _showRequirements(BuildContext context) async {
+    if (_requirements.isEmpty) return;
+
+    if (_requirements.length == 1) {
+      await _openRequirement(_requirements.first);
+      return;
+    }
+
+     _showSheet(
       context,
       title: 'Requirements',
       subtitle:
           '${_requirements.length} requirement${_requirements.length == 1 ? '' : 's'}',
       icon: Icons.assignment_outlined,
       color: _AppColors.indigo,
-      child: _requirements.isEmpty
-          ? _sheetEmpty(
-              Icons.assignment_outlined,
-              'No requirements',
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(
-                18,
-                8,
-                18,
-                28,
-              ),
-              itemCount: _requirements.length,
-              separatorBuilder: (_, __) =>
-                  const SizedBox(height: 11),
-              itemBuilder: (_, index) {
-                return _detailDataCard(
-                  index: index + 1,
-                  icon: Icons.assignment_outlined,
-                  title: 'Requirement ${index + 1}',
-                  data: _requirements[index],
-                  color: _AppColors.indigo,
-                );
-              },
-            ),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+        itemCount: _requirements.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 11),
+        itemBuilder: (_, index) {
+          final requirement = _requirements[index];
+          return _navigationDataCard(
+            index: index + 1,
+            icon: Icons.assignment_outlined,
+            title: _requirementNumber(requirement, index),
+            subtitle: _requirementSubtitle(requirement),
+            color: _AppColors.indigo,
+            onTap: () {
+              Navigator.pop(context);
+              _openRequirement(requirement);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _openRequirement(
+    Map<String, dynamic> requirement,
+  ) async {
+    if (!mounted) return;
+
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RequirementDetailsScreen(
+          requirement: requirement,
+          onCreateQuotation: () {
+            Navigator.of(context).pop();
+            _openQuotationCreateFlow(requirement);
+          },
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      await _refresh();
+    }
+  }
+
+  void _openQuotationCreateFlow(
+    Map<String, dynamic> requirement,
+  ) {
+    // The existing quotation-create flow can be wired here when its screen is
+    // available. Keeping this callback safe prevents a broken navigation.
+    _showInfoDialog(
+      title: 'Create quotation',
+      message:
+          'This requirement is ready for quotation creation. Connect your existing quotation-create screen in _openQuotationCreateFlow().',
+      icon: Icons.request_quote_outlined,
+      color: _AppColors.purple,
     );
   }
 
@@ -921,42 +964,92 @@ class _LeadDetailsScreenState extends State<LeadDetailsScreen> {
   // QUOTATIONS
   // ============================================================
 
-  void _showQuotations(BuildContext context) {
-    _showSheet(
+  Future<void> _showQuotations(BuildContext context) async {
+    if (_quotations.isEmpty) return;
+
+    if (_quotations.length == 1) {
+      await _openQuotation(_quotations.first);
+      return;
+    }
+
+     _showSheet(
       context,
       title: 'Quotations',
       subtitle:
           '${_quotations.length} quotation${_quotations.length == 1 ? '' : 's'}',
       icon: Icons.request_quote_outlined,
       color: _AppColors.purple,
-      child: _quotations.isEmpty
-          ? _sheetEmpty(
-              Icons.request_quote_outlined,
-              'No quotations',
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(
-                18,
-                8,
-                18,
-                28,
-              ),
-              itemCount: _quotations.length,
-              separatorBuilder: (_, __) =>
-                  const SizedBox(height: 11),
-              itemBuilder: (_, index) {
-                final quotation = _quotations[index];
-
-                return _detailDataCard(
-                  index: index + 1,
-                  icon: Icons.request_quote_outlined,
-                  title: 'Quotation ${index + 1}',
-                  data: quotation,
-                  color: _AppColors.purple,
-                );
-              },
-            ),
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 28),
+        itemCount: _quotations.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 11),
+        itemBuilder: (_, index) {
+          final quotation = _quotations[index];
+          return _navigationDataCard(
+            index: index + 1,
+            icon: Icons.request_quote_outlined,
+            title: _quotationNumber(quotation, index),
+            subtitle: _quotationSubtitle(quotation),
+            color: _AppColors.purple,
+            onTap: () {
+              Navigator.pop(context);
+              _openQuotation(quotation);
+            },
+          );
+        },
+      ),
     );
+  }
+
+  Future<void> _openQuotation(
+    Map<String, dynamic> quotation,
+  ) async {
+    if (!mounted) return;
+
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QuotationDetailsScreen(
+          quotation: quotation,
+          onOpenRequirement: () {
+            final requirementId =
+                _text(quotation['requirementId'], fallback: '');
+
+            if (requirementId.isEmpty) return;
+
+            final match = _requirements.where(
+              (item) =>
+                  _text(item['id'], fallback: '') == requirementId,
+            );
+
+            if (match.isNotEmpty) {
+              _openRequirement(match.first);
+            } else {
+              _showInfoDialog(
+                title: 'Requirement not loaded',
+                message:
+                    'The quotation has a requirement reference, but that requirement is not available in the loaded lead data.',
+                icon: Icons.assignment_outlined,
+                color: _AppColors.indigo,
+              );
+            }
+          },
+          onConvertToOrder: (quote) {
+            Navigator.of(context).pop();
+            _showInfoDialog(
+              title: 'Convert to order',
+              message:
+                  'Connect your existing EquipmentOrderCreate or NursingOrderCreate flow here. The quotation data is already passed through the callback.',
+              icon: Icons.shopping_bag_outlined,
+              color: _AppColors.green,
+            );
+          },
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      await _refresh();
+    }
   }
 
   // ============================================================
@@ -1143,6 +1236,240 @@ class _LeadDetailsScreenState extends State<LeadDetailsScreen> {
       );
       return;
     }
+  }
+
+  Widget _navigationDataCard({
+    required int index,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(23),
+        child: Ink(
+          padding: const EdgeInsets.all(17),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(23),
+            border: Border.all(color: _AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(.035),
+                blurRadius: 15,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 53,
+                height: 53,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(.09),
+                  borderRadius: BorderRadius.circular(17),
+                ),
+                child: Center(
+                  child: Icon(icon, color: color, size: 24),
+                ),
+              ),
+              const SizedBox(width: 13),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w900,
+                        color: _AppColors.text,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        height: 1.35,
+                        fontWeight: FontWeight.w500,
+                        color: _AppColors.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    _miniStatus(
+                      _text(
+                        _relatedStatus(
+                          title.startsWith('REQ')
+                              ? 'requirement'
+                              : 'quotation',
+                          index,
+                        ),
+                        fallback: 'View details',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 15,
+                color: _AppColors.muted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // These two methods deliberately use the index only as a safe fallback
+  // because the card already receives the source map. They return a compact
+  // status string without assuming a rigid Firestore schema.
+  String _relatedStatus(String type, int index) => 'View details';
+
+  String _requirementNumber(
+    Map<String, dynamic> requirement,
+    int index,
+  ) {
+    return _text(
+      requirement['requirementNo'] ??
+          requirement['reqNo'] ??
+          requirement['requirementNumber'] ??
+          requirement['id'],
+      fallback: 'Requirement ${index + 1}',
+    );
+  }
+
+  String _requirementSubtitle(Map<String, dynamic> requirement) {
+    final service = _text(
+      requirement['serviceType'] ??
+          requirement['service'] ??
+          requirement['type'],
+      fallback: 'Customer requirement',
+    );
+    final status = _text(
+      requirement['status'],
+      fallback: 'Pending',
+    );
+    return '$service  •  ${status.toUpperCase()}';
+  }
+
+  String _quotationNumber(
+    Map<String, dynamic> quotation,
+    int index,
+  ) {
+    return _text(
+      quotation['quoNo'] ??
+          quotation['quotationNo'] ??
+          quotation['quotationNumber'] ??
+          quotation['quotationId'] ??
+          quotation['id'],
+      fallback: 'Quotation ${index + 1}',
+    );
+  }
+
+  String _quotationSubtitle(Map<String, dynamic> quotation) {
+    final service = _text(
+      quotation['serviceType'] ??
+          _nested(quotation, 'meta', 'serviceType') ??
+          quotation['type'],
+      fallback: 'Quotation',
+    );
+    final status = _text(
+      quotation['status'],
+      fallback: 'Draft',
+    );
+    final total = _money(
+      quotation['finalAmount'] ??
+          quotation['total'] ??
+          _nested(quotation, 'totals', 'total'),
+    );
+
+    if (total == '-') {
+      return '$service  •  ${status.toUpperCase()}';
+    }
+
+    return '$service  •  ${status.toUpperCase()}  •  $total';
+  }
+
+  Future<void> _showInfoDialog({
+    required String title,
+    required String message,
+    required IconData icon,
+    required Color color,
+  }) async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 8),
+          contentPadding: const EdgeInsets.fromLTRB(22, 0, 22, 8),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          title: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(.10),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: _AppColors.text,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(
+              fontSize: 12.5,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
+              color: _AppColors.textSoft,
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              style: FilledButton.styleFrom(
+                backgroundColor: _AppColors.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(13),
+                ),
+              ),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // ============================================================

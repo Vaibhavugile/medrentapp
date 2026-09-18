@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
 
 class MarketingProfileScreen extends StatefulWidget {
   final String marketingId;
@@ -19,6 +20,14 @@ class MarketingProfileScreen extends StatefulWidget {
 class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
   bool _uploading = false;
   double _uploadProgress = 0;
+
+  // ============================================================
+  // PROFILE PHOTO STATE
+  // ============================================================
+
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _uploadingProfilePhoto = false;
+  double _profilePhotoProgress = 0;
 
   // ============================================================
   // HELPERS
@@ -55,6 +64,34 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
         : '₹$salary';
 
     return amount;
+  }
+
+  String _formatProfileDate(dynamic value) {
+    if (value == null) return '';
+
+    try {
+      DateTime? date;
+
+      if (value is Timestamp) {
+        date = value.toDate();
+      } else if (value is DateTime) {
+        date = value;
+      } else if (value is String && value.trim().isNotEmpty) {
+        date = DateTime.tryParse(value.trim());
+      } else if (value is Map && value['seconds'] != null) {
+        date = DateTime.fromMillisecondsSinceEpoch(
+          (value['seconds'] as num).toInt() * 1000,
+        );
+      }
+
+      if (date == null) return value.toString().trim();
+
+      return '${date.day.toString().padLeft(2, '0')}/'
+          '${date.month.toString().padLeft(2, '0')}/'
+          '${date.year}';
+    } catch (_) {
+      return value.toString().trim();
+    }
   }
 
   // ============================================================
@@ -242,6 +279,742 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
     );
   }
 
+
+
+  // ============================================================
+  // PROFILE PHOTO HELPERS
+  // ============================================================
+
+  String _profilePhotoUrl(Map<String, dynamic> data) {
+    final candidates = [
+      data['profilePhotoUrl'],
+      data['photoUrl'],
+      data['profilePhoto'],
+      data['photo'],
+    ];
+
+    for (final value in candidates) {
+      final url = value?.toString().trim() ?? '';
+      if (url.isNotEmpty) return url;
+    }
+
+    return '';
+  }
+
+  String _storagePathFromUrl(String url) {
+    try {
+      final uri = Uri.parse(url);
+      final encodedPath = uri.queryParameters['path'];
+
+      if (encodedPath != null && encodedPath.isNotEmpty) {
+        return Uri.decodeComponent(encodedPath);
+      }
+
+      final marker = '/o/';
+      final index = uri.path.indexOf(marker);
+
+      if (index != -1) {
+        final encoded = uri.path.substring(index + marker.length);
+        return Uri.decodeComponent(encoded);
+      }
+    } catch (_) {}
+
+    return '';
+  }
+
+  Future<void> _showProfilePhotoViewer(String url) async {
+    if (url.isEmpty || !mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(.88),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(14),
+          child: Stack(
+            children: [
+              InteractiveViewer(
+                minScale: .8,
+                maxScale: 4,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(22),
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      maxHeight: 680,
+                      maxWidth: 680,
+                    ),
+                    color: Colors.black,
+                    child: Image.network(
+                      url,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+
+                        return const SizedBox(
+                          height: 350,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) {
+                        return const SizedBox(
+                          height: 350,
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              color: Colors.white70,
+                              size: 55,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Colors.black.withOpacity(.55),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _chooseProfilePhotoSource() async {
+    if (_uploadingProfilePhoto) return;
+
+    if (!mounted) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xffCBD5E1),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Profile Photo',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xff17202A),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Choose how you want to update your photo.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xff64748B),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _photoSourceButton(
+                        icon: Icons.camera_alt_rounded,
+                        title: 'Camera',
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _pickAndUploadProfilePhoto(ImageSource.camera);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _photoSourceButton(
+                        icon: Icons.photo_library_rounded,
+                        title: 'Gallery',
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          _pickAndUploadProfilePhoto(ImageSource.gallery);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                      _confirmRemoveProfilePhoto();
+                    },
+                    icon: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: Color(0xffDC2626),
+                    ),
+                    label: const Text(
+                      'Remove Current Photo',
+                      style: TextStyle(
+                        color: Color(0xffDC2626),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),
+                      side: const BorderSide(
+                        color: Color(0xffFECACA),
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _photoSourceButton({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(17),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(vertical: 17),
+          decoration: BoxDecoration(
+            color: const Color(0xffF8FAFC),
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(
+              color: const Color(0xffE2E8F0),
+            ),
+          ),
+          child: Column(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: const Color(0xffE8F1F8),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: const Color(0xff0F4C75),
+                  size: 23,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xff17202A),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadProfilePhoto(ImageSource source) async {
+    if (_uploadingProfilePhoto) return;
+
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1400,
+        maxHeight: 1400,
+        imageQuality: 85,
+      );
+
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+
+      if (bytes.isEmpty) {
+        _showProfileMessage(
+          'Unable to read the selected image.',
+          isError: true,
+        );
+        return;
+      }
+
+      const maxSize = 10 * 1024 * 1024;
+
+      if (bytes.length > maxSize) {
+        _showProfileMessage(
+          'Profile image must be 10 MB or less.',
+          isError: true,
+        );
+        return;
+      }
+
+      final extension = picked.name.contains('.')
+          ? picked.name.split('.').last.toLowerCase()
+          : 'jpg';
+
+      final safeExtension = <String>[
+        'jpg',
+        'jpeg',
+        'png',
+        'webp',
+      ].contains(extension)
+          ? extension
+          : 'jpg';
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+      final storagePath =
+          'marketing-profile-photos/${widget.marketingId}/'
+          '$timestamp-profile.$safeExtension';
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = true;
+        _profilePhotoProgress = 0;
+      });
+
+      final storageRef = FirebaseStorage.instance.ref().child(storagePath);
+
+      final uploadTask = storageRef.putData(
+        bytes,
+        SettableMetadata(
+          contentType: safeExtension == 'png'
+              ? 'image/png'
+              : safeExtension == 'webp'
+                  ? 'image/webp'
+                  : 'image/jpeg',
+          cacheControl: 'public,max-age=31536000',
+        ),
+      );
+
+      uploadTask.snapshotEvents.listen((snapshot) {
+        if (!mounted) return;
+
+        final total = snapshot.totalBytes;
+        final transferred = snapshot.bytesTransferred;
+
+        setState(() {
+          _profilePhotoProgress =
+              total > 0 ? transferred / total : 0;
+        });
+      });
+
+      await uploadTask;
+
+      final downloadUrl = await storageRef.getDownloadURL();
+
+      final profileRef = FirebaseFirestore.instance
+          .collection('marketing')
+          .doc(widget.marketingId);
+
+      final oldSnapshot = await profileRef.get();
+      final oldData = oldSnapshot.data() ?? {};
+      final oldUrl = _profilePhotoUrl(oldData);
+
+      await profileRef.update({
+        'profilePhotoUrl': downloadUrl,
+        'profilePhotoStoragePath': storagePath,
+        'profilePhotoUpdatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Delete the previous profile image after Firestore is updated.
+      // If the old image was from another storage location, simply skip it.
+      final oldStoragePath =
+          oldData['profilePhotoStoragePath']?.toString().trim() ??
+              '';
+
+      if (oldStoragePath.isNotEmpty &&
+          oldStoragePath != storagePath) {
+        try {
+          await FirebaseStorage.instance
+              .ref()
+              .child(oldStoragePath)
+              .delete();
+        } catch (_) {
+          // The new photo is already saved, so an old-file cleanup
+          // failure should not make the update look unsuccessful.
+        }
+      } else if (oldUrl.isNotEmpty && oldUrl != downloadUrl) {
+        // Fallback for older records that stored only the URL.
+        final inferredPath = _storagePathFromUrl(oldUrl);
+
+        if (inferredPath.isNotEmpty &&
+            inferredPath != storagePath) {
+          try {
+            await FirebaseStorage.instance
+                .ref()
+                .child(inferredPath)
+                .delete();
+          } catch (_) {}
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = false;
+        _profilePhotoProgress = 0;
+      });
+
+      _showProfileMessage('Profile photo updated successfully.');
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = false;
+        _profilePhotoProgress = 0;
+      });
+
+      _showProfileMessage(
+        'Unable to update profile photo. Please try again.',
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _confirmRemoveProfilePhoto() async {
+    if (_uploadingProfilePhoto) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Text(
+            'Remove Profile Photo?',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: const Text(
+            'Your current profile photo will be removed from your profile.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xffDC2626),
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final profileRef = FirebaseFirestore.instance
+          .collection('marketing')
+          .doc(widget.marketingId);
+
+      final snapshot = await profileRef.get();
+
+      if (!snapshot.exists) {
+        _showProfileMessage(
+          'Profile was not found.',
+          isError: true,
+        );
+        return;
+      }
+
+      final data = snapshot.data() ?? {};
+      final photoUrl = _profilePhotoUrl(data);
+
+      final storagePath =
+          data['profilePhotoStoragePath']?.toString().trim() ??
+              '';
+
+      await profileRef.update({
+        'profilePhotoUrl': FieldValue.delete(),
+        'profilePhotoStoragePath': FieldValue.delete(),
+        'profilePhotoUpdatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (storagePath.isNotEmpty) {
+        try {
+          await FirebaseStorage.instance
+              .ref()
+              .child(storagePath)
+              .delete();
+        } catch (_) {}
+      } else if (photoUrl.isNotEmpty) {
+        final inferredPath = _storagePathFromUrl(photoUrl);
+
+        if (inferredPath.isNotEmpty) {
+          try {
+            await FirebaseStorage.instance
+                .ref()
+                .child(inferredPath)
+                .delete();
+          } catch (_) {}
+        }
+      }
+
+      if (!mounted) return;
+
+      _showProfileMessage('Profile photo removed.');
+    } catch (_) {
+      if (!mounted) return;
+
+      _showProfileMessage(
+        'Unable to remove the profile photo.',
+        isError: true,
+      );
+    }
+  }
+
+  void _showProfileMessage(
+    String message, {
+    bool isError = false,
+  }) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                isError
+                    ? Icons.error_outline_rounded
+                    : Icons.check_circle_outline_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  message,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: isError
+              ? const Color(0xffDC2626)
+              : const Color(0xff0F4C75),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(15),
+          ),
+          margin: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        ),
+      );
+  }
+
+  Widget _profileAvatar({
+    required String name,
+    required String photoUrl,
+    required bool isActive,
+  }) {
+    final firstLetter = name.isNotEmpty
+        ? name.substring(0, 1).toUpperCase()
+        : 'M';
+
+    return Stack(
+      alignment: Alignment.bottomRight,
+      children: [
+        GestureDetector(
+          onTap: photoUrl.isEmpty
+              ? _chooseProfilePhotoSource
+              : () => _showProfilePhotoViewer(photoUrl),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withOpacity(.95),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.16),
+                  blurRadius: 18,
+                  offset: const Offset(0, 7),
+                ),
+              ],
+            ),
+            child: CircleAvatar(
+              radius: 48,
+              backgroundColor: const Color(0xffE8F1F8),
+              backgroundImage: photoUrl.isNotEmpty
+                  ? NetworkImage(photoUrl)
+                  : null,
+              child: photoUrl.isEmpty
+                  ? Text(
+                      firstLetter,
+                      style: const TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xff0F4C75),
+                      ),
+                    )
+                  : null,
+            ),
+          ),
+        ),
+
+        // Edit button
+        Positioned(
+          right: 1,
+          bottom: 1,
+          child: Material(
+            color: Colors.white,
+            shape: const CircleBorder(),
+            elevation: 5,
+            child: InkWell(
+              onTap: _uploadingProfilePhoto
+                  ? null
+                  : _chooseProfilePhotoSource,
+              customBorder: const CircleBorder(),
+              child: Container(
+                width: 31,
+                height: 31,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [
+                      Color(0xff0F4C75),
+                      Color(0xff3282B8),
+                    ],
+                  ),
+                ),
+                child: _uploadingProfilePhoto
+                    ? const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+              ),
+            ),
+          ),
+        ),
+
+        // Online status
+        Positioned(
+          right: 0,
+          bottom: 35,
+          child: Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isActive
+                  ? const Color(0xff22C55E)
+                  : const Color(0xffEF4444),
+              border: Border.all(
+                color: const Color(0xff0F4C75),
+                width: 3,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _profilePhotoUploadProgress() {
+    if (!_uploadingProfilePhoto) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: LinearProgressIndicator(
+              minHeight: 6,
+              value: _profilePhotoProgress > 0
+                  ? _profilePhotoProgress
+                  : null,
+              backgroundColor: Colors.white.withOpacity(.20),
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _profilePhotoProgress > 0
+                ? 'Uploading photo ${(_profilePhotoProgress * 100).toStringAsFixed(0)}%'
+                : 'Preparing photo...',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   // ============================================================
   // DOCUMENT HELPERS
@@ -1069,14 +1842,11 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
         final phone = _value(data, 'phone');
         final email = _value(data, 'loginEmail');
         final branchId = _value(data, 'branchId');
+        final profilePhotoUrl = _profilePhotoUrl(data);
 
         final salary = _salaryText(data);
 
         final isActive = data['active'] == true;
-
-        final firstLetter = name.isNotEmpty
-            ? name.substring(0, 1).toUpperCase()
-            : 'M';
 
         // ======================================================
         // MAIN SCREEN
@@ -1136,53 +1906,14 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
 
                       child: Column(
                         children: [
-                          // Avatar
-                          Stack(
-                            alignment: Alignment.bottomRight,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(4),
-
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: Colors.white.withOpacity(.95),
-                                ),
-
-                                child: CircleAvatar(
-                                  radius: 48,
-                                  backgroundColor:
-                                      const Color(0xffE8F1F8),
-
-                                  child: Text(
-                                    firstLetter,
-
-                                    style: const TextStyle(
-                                      fontSize: 36,
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xff0F4C75),
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              Container(
-                                width: 23,
-                                height: 23,
-
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: isActive
-                                      ? const Color(0xff22C55E)
-                                      : const Color(0xffEF4444),
-
-                                  border: Border.all(
-                                    color: const Color(0xff0F4C75),
-                                    width: 3,
-                                  ),
-                                ),
-                              ),
-                            ],
+                          // Profile photo
+                          _profileAvatar(
+                            name: name,
+                            photoUrl: profilePhotoUrl,
+                            isActive: isActive,
                           ),
+
+                          _profilePhotoUploadProgress(),
 
                           const SizedBox(height: 13),
 
@@ -1211,6 +1942,24 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
                               color: Colors.white70,
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
+                            ),
+                          ),
+
+                          const SizedBox(height: 7),
+
+                          GestureDetector(
+                            onTap: _uploadingProfilePhoto
+                                ? null
+                                : _chooseProfilePhotoSource,
+                            child: Text(
+                              profilePhotoUrl.isEmpty
+                                  ? 'Add profile photo'
+                                  : 'Tap photo to view • Camera to change',
+                              style: const TextStyle(
+                                color: Colors.white60,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
 
@@ -1327,6 +2076,30 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
                               title: 'Email Address',
                               value: email,
                             ),
+
+                            _infoItem(
+                              icon: Icons.cake_outlined,
+                              title: 'Date of Birth',
+                              value: _formatProfileDate(data['dob'] ?? data['dateOfBirth'] ?? data['birthDate']),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.person_outline_rounded,
+                              title: 'Father Name',
+                              value: _value(data, 'fatherName'),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.wc_outlined,
+                              title: 'Gender',
+                              value: _capitalize(_value(data, 'gender')),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.bloodtype_outlined,
+                              title: 'Blood Group',
+                              value: _value(data, 'bloodGroup'),
+                            ),
                           ],
                         ),
 
@@ -1345,6 +2118,34 @@ class _MarketingProfileScreenState extends State<MarketingProfileScreen> {
                               value: role.isEmpty
                                   ? ''
                                   : _capitalize(role),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.badge_outlined,
+                              title: 'Employee ID',
+                              value: _value(data, 'employeeId').isNotEmpty
+                                  ? _value(data, 'employeeId')
+                                  : _value(data, 'employeeID'),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.work_outline_rounded,
+                              title: 'Designation',
+                              value: _value(data, 'designation'),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.schedule_outlined,
+                              title: 'Work Type',
+                              value: _capitalize(_value(data, 'workType')),
+                            ),
+
+                            _infoItem(
+                              icon: Icons.event_available_outlined,
+                              title: 'Joining Date',
+                              value: _formatProfileDate(
+                                data['joiningDate'] ?? data['joinDate'],
+                              ),
                             ),
 
                             if (branchId.isNotEmpty)

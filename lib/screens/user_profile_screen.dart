@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class UserProfileScreen extends StatefulWidget {
@@ -21,6 +22,11 @@ class UserProfileScreen extends StatefulWidget {
 class _UserProfileScreenState extends State<UserProfileScreen> {
   bool _uploading = false;
   double _uploadProgress = 0;
+
+  final ImagePicker _imagePicker = ImagePicker();
+
+  bool _uploadingProfilePhoto = false;
+  double _profilePhotoUploadProgress = 0;
 
   // ============================================================
   // HELPERS
@@ -413,6 +419,687 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // PROFILE PHOTO
+  // ============================================================
+
+  String _profilePhotoUrl(Map<String, dynamic> data) {
+    final candidates = [
+      data['profilePhotoUrl'],
+      data['photoUrl'],
+      data['profilePhoto'],
+      data['photo'],
+      data['avatarUrl'],
+      data['imageUrl'],
+    ];
+
+    for (final candidate in candidates) {
+      final value = candidate?.toString().trim() ?? '';
+      if (value.isNotEmpty && value != 'null') {
+        return value;
+      }
+    }
+
+    return '';
+  }
+
+  String _profilePhotoStoragePath(Map<String, dynamic> data) {
+    final candidates = [
+      data['profilePhotoStoragePath'],
+      data['photoStoragePath'],
+      data['avatarStoragePath'],
+    ];
+
+    for (final candidate in candidates) {
+      final value = candidate?.toString().trim() ?? '';
+      if (value.isNotEmpty && value != 'null') {
+        return value;
+      }
+    }
+
+    return '';
+  }
+
+  Future<void> _showProfilePhoto() async {
+    // The actual URL is resolved from the live Firestore document in build.
+    // This method is intentionally opened through _openProfilePhoto.
+  }
+
+  Future<void> _openProfilePhoto(String url) async {
+    if (url.trim().isEmpty) {
+      await _showProfilePhotoOptions();
+      return;
+    }
+
+    if (!mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            title: const Text(
+              'Profile Photo',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          body: Center(
+            child: InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 4.0,
+              child: Image.network(
+                url,
+                fit: BoxFit.contain,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+
+                  return const SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2.5,
+                    ),
+                  );
+                },
+                errorBuilder: (_, __, ___) {
+                  return const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.broken_image_outlined,
+                        color: Colors.white70,
+                        size: 54,
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'Unable to load profile photo',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showProfilePhotoOptions() async {
+    if (_uploadingProfilePhoto) return;
+
+    if (!mounted) return;
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 18),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD9E0E8),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                const Text(
+                  'Profile Photo',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF172033),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Text(
+                  'View or update your profile picture',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF8A94A6),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                _photoActionTile(
+                  icon: Icons.photo_library_outlined,
+                  title: 'Choose from Gallery',
+                  subtitle: 'Select a photo from your device',
+                  onTap: () => Navigator.pop(sheetContext, 'gallery'),
+                ),
+                const SizedBox(height: 9),
+                _photoActionTile(
+                  icon: Icons.camera_alt_outlined,
+                  title: 'Take a Photo',
+                  subtitle: 'Use your device camera',
+                  onTap: () => Navigator.pop(sheetContext, 'camera'),
+                ),
+                const SizedBox(height: 9),
+                _photoActionTile(
+                  icon: Icons.delete_outline_rounded,
+                  title: 'Remove Photo',
+                  subtitle: 'Remove the current profile picture',
+                  destructive: true,
+                  onTap: () => Navigator.pop(sheetContext, 'remove'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case 'gallery':
+        await _pickProfilePhoto(ImageSource.gallery);
+        break;
+      case 'camera':
+        await _pickProfilePhoto(ImageSource.camera);
+        break;
+      case 'remove':
+        await _removeProfilePhoto();
+        break;
+    }
+  }
+
+  Widget _photoActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool destructive = false,
+  }) {
+    final iconColor =
+        destructive ? Colors.redAccent : const Color(0xFF4CA1AF);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(17),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(13),
+          decoration: BoxDecoration(
+            color: destructive
+                ? Colors.red.withOpacity(.045)
+                : const Color(0xFFF7FAFC),
+            borderRadius: BorderRadius.circular(17),
+            border: Border.all(
+              color: destructive
+                  ? Colors.red.withOpacity(.10)
+                  : const Color(0xFFE8EEF3),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 45,
+                height: 45,
+                decoration: BoxDecoration(
+                  color: destructive
+                      ? Colors.red.withOpacity(.08)
+                      : const Color(0xFFEAF7F8),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: destructive
+                            ? Colors.redAccent
+                            : const Color(0xFF172033),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF8A94A6),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: destructive
+                    ? Colors.redAccent.withOpacity(.65)
+                    : const Color(0xFF9AA6B5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickProfilePhoto(ImageSource source) async {
+    if (_uploadingProfilePhoto) return;
+
+    try {
+      final XFile? picked = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1400,
+        maxHeight: 1400,
+        imageQuality: 85,
+      );
+
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+
+      if (bytes.isEmpty) {
+        _showMessage(
+          'Unable to read the selected image.',
+          isError: true,
+        );
+        return;
+      }
+
+      const maxBytes = 10 * 1024 * 1024;
+
+      if (bytes.length > maxBytes) {
+        _showMessage(
+          'Profile photo must be smaller than 10 MB.',
+          isError: true,
+        );
+        return;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = true;
+        _profilePhotoUploadProgress = 0;
+      });
+
+      final extension = _fileExtension(picked.name).isEmpty
+          ? 'jpg'
+          : _fileExtension(picked.name);
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storagePath =
+          'user-profile-photos/${widget.userId}/$timestamp-profile.$extension';
+
+      final storageRef =
+          FirebaseStorage.instance.ref().child(storagePath);
+
+      final metadata = SettableMetadata(
+        contentType: _contentType(picked.name),
+      );
+
+      final uploadTask = storageRef.putData(
+        bytes,
+        metadata,
+      );
+
+      uploadTask.snapshotEvents.listen(
+        (snapshot) {
+          if (!mounted) return;
+
+          final total = snapshot.totalBytes;
+
+          if (total > 0) {
+            setState(() {
+              _profilePhotoUploadProgress =
+                  snapshot.bytesTransferred / total;
+            });
+          }
+        },
+      );
+
+      final snapshot = await uploadTask;
+      final downloadUrl =
+          await snapshot.ref.getDownloadURL();
+
+      final userRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId);
+
+      final currentSnapshot = await userRef.get();
+      final currentData = currentSnapshot.data() ?? {};
+      final oldStoragePath =
+          _profilePhotoStoragePath(currentData);
+
+      await userRef.update({
+        'profilePhotoUrl': downloadUrl,
+        'profilePhotoStoragePath': storagePath,
+        'profilePhotoUpdatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (oldStoragePath.isNotEmpty &&
+          oldStoragePath != storagePath) {
+        try {
+          await FirebaseStorage.instance
+              .ref()
+              .child(oldStoragePath)
+              .delete();
+        } catch (e) {
+          debugPrint(
+            'Old profile photo delete skipped/failed: $e',
+          );
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = false;
+        _profilePhotoUploadProgress = 0;
+      });
+
+      _showMessage('Profile photo updated successfully.');
+    } catch (e) {
+      debugPrint('Profile photo upload error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = false;
+        _profilePhotoUploadProgress = 0;
+      });
+
+      _showMessage(
+        'Failed to update profile photo.',
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _removeProfilePhoto() async {
+    if (_uploadingProfilePhoto) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Remove Profile Photo?',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: const Text(
+            'Your current profile photo will be removed.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final userRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId);
+
+      final snapshot = await userRef.get();
+      final data = snapshot.data() ?? {};
+      final oldStoragePath =
+          _profilePhotoStoragePath(data);
+
+      if (oldStoragePath.isNotEmpty) {
+        try {
+          await FirebaseStorage.instance
+              .ref()
+              .child(oldStoragePath)
+              .delete();
+        } catch (e) {
+          debugPrint(
+            'Profile photo storage delete skipped/failed: $e',
+          );
+        }
+      }
+
+      await userRef.update({
+        'profilePhotoUrl': FieldValue.delete(),
+        'profilePhotoStoragePath': FieldValue.delete(),
+        'profilePhotoUpdatedAt': FieldValue.delete(),
+      });
+
+      if (!mounted) return;
+
+      _showMessage('Profile photo removed.');
+    } catch (e) {
+      debugPrint('Remove profile photo error: $e');
+
+      if (!mounted) return;
+
+      _showMessage(
+        'Failed to remove profile photo.',
+        isError: true,
+      );
+    }
+  }
+
+  Widget _profileAvatar({
+    required String name,
+    required bool active,
+    required String photoUrl,
+  }) {
+    final hasPhoto = photoUrl.trim().isNotEmpty;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        GestureDetector(
+          onTap: _uploadingProfilePhoto
+              ? null
+              : () async {
+                  if (hasPhoto) {
+                    await _openProfilePhoto(photoUrl);
+                  } else {
+                    await _showProfilePhotoOptions();
+                  }
+                },
+          child: Container(
+            width: 94,
+            height: 94,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(
+                color: Colors.white.withOpacity(.85),
+                width: 3,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  blurRadius: 28,
+                  offset: const Offset(0, 10),
+                  color: Colors.black.withOpacity(.22),
+                ),
+              ],
+              image: hasPhoto
+                  ? DecorationImage(
+                      image: NetworkImage(photoUrl),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
+            ),
+            child: hasPhoto
+                ? null
+                : Center(
+                    child: Text(
+                      _initial(name),
+                      style: const TextStyle(
+                        fontSize: 38,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF4CA1AF),
+                      ),
+                    ),
+                  ),
+          ),
+        ),
+
+        Positioned(
+          right: -2,
+          bottom: -2,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: _uploadingProfilePhoto
+                  ? null
+                  : _showProfilePhotoOptions,
+              borderRadius: BorderRadius.circular(18),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CA1AF),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 3,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      blurRadius: 12,
+                      offset: const Offset(0, 5),
+                      color: Colors.black.withOpacity(.18),
+                    ),
+                  ],
+                ),
+                child: _uploadingProfilePhoto
+                    ? const Padding(
+                        padding: EdgeInsets.all(9),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.white,
+                        size: 17,
+                      ),
+              ),
+            ),
+          ),
+        ),
+
+        Positioned(
+          right: 1,
+          bottom: 2,
+          child: IgnorePointer(
+            child: Transform.translate(
+              offset: const Offset(0, 0),
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  color: active
+                      ? const Color(0xFF22C55E)
+                      : const Color(0xFFEF4444),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 3,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProfilePhotoUploadProgress() {
+    if (!_uploadingProfilePhoto) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: LinearProgressIndicator(
+              value: _profilePhotoUploadProgress,
+              minHeight: 5,
+              backgroundColor: Colors.white.withOpacity(.20),
+              valueColor:
+                  const AlwaysStoppedAnimation<Color>(
+                Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            'Updating photo ${(_profilePhotoUploadProgress * 100).toStringAsFixed(0)}%',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1616,81 +2303,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
                           const SizedBox(height: 24),
 
-                          // AVATAR
-                          Stack(
-                            clipBehavior:
-                                Clip.none,
-                            children: [
-                              Container(
-                                width: 94,
-                                height: 94,
-                                decoration:
-                                    BoxDecoration(
-                                  shape:
-                                      BoxShape.circle,
-                                  color: Colors.white,
-                                  border: Border.all(
-                                    color: Colors.white
-                                        .withOpacity(.85),
-                                    width: 3,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      blurRadius: 28,
-                                      offset:
-                                          const Offset(
-                                        0,
-                                        10,
-                                      ),
-                                      color: Colors.black
-                                          .withOpacity(.22),
-                                    ),
-                                  ],
-                                ),
-                                child: Center(
-                                  child: Text(
-                                    _initial(name),
-                                    style:
-                                        const TextStyle(
-                                      fontSize: 38,
-                                      fontWeight:
-                                          FontWeight.w900,
-                                      color: Color(
-                                        0xFF4CA1AF,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              Positioned(
-                                right: 1,
-                                bottom: 2,
-                                child: Container(
-                                  width: 22,
-                                  height: 22,
-                                  decoration:
-                                      BoxDecoration(
-                                    color: active
-                                        ? const Color(
-                                            0xFF22C55E,
-                                          )
-                                        : const Color(
-                                            0xFFEF4444,
-                                          ),
-                                    shape:
-                                        BoxShape.circle,
-                                    border:
-                                        Border.all(
-                                      color:
-                                          Colors.white,
-                                      width: 3,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                          // PROFILE PHOTO
+                          _profileAvatar(
+                            name: name,
+                            active: active,
+                            photoUrl: _profilePhotoUrl(data),
                           ),
+
+                          _buildProfilePhotoUploadProgress(),
 
                           const SizedBox(height: 15),
 

@@ -23,6 +23,7 @@ class MarketingHome extends StatefulWidget {
 
 class _MarketingHomeState extends State<MarketingHome> {
   int _tab = 0;
+
   late final List<Widget> _pages;
 
   @override
@@ -30,70 +31,196 @@ class _MarketingHomeState extends State<MarketingHome> {
     super.initState();
 
     _pages = [
-      // =========================
+      // ============================================================
       // TODAY
-      // =========================
+      // ============================================================
       TodayScreen(
         userId: widget.userId,
         userName: widget.userName,
       ),
 
-      // =========================
+      // ============================================================
       // VISITS
-      // =========================
+      // ============================================================
       MarketingVisitsScreen(
         userId: widget.userId,
         userName: widget.userName,
       ),
 
-      // =========================
+      // ============================================================
       // LEADS
-      // =========================
+      // ============================================================
       LeadsScreen(
         userId: widget.userId,
         userName: widget.userName,
       ),
 
-      // =========================
+      // ============================================================
       // ATTENDANCE
-      // =========================
+      // ============================================================
       AttendanceScreen(
         userId: widget.userId,
         userName: widget.userName,
         collectionRoot: 'marketing',
       ),
 
-      // =========================
+      // ============================================================
       // HISTORY
-      // =========================
+      // ============================================================
       AttendanceHistoryScreen(
         userId: widget.userId,
         collectionRoot: 'marketing',
       ),
 
-      // =========================
+      // ============================================================
       // PROFILE
-      // =========================
+      // ============================================================
       MarketingProfileScreen(
         marketingId: widget.userId,
       ),
     ];
   }
 
+  // ================================================================
+  // PROFILE TAB
+  // ================================================================
+
+  void _openProfile() {
+    if (!mounted) return;
+
+    setState(() {
+      _tab = 5;
+    });
+  }
+
+  // ================================================================
+  // AVATAR
+  // ================================================================
+
+  Widget _profileAvatar() {
+    final firstLetter = widget.userName.trim().isNotEmpty
+        ? widget.userName.trim()[0].toUpperCase()
+        : 'M';
+
+    return GestureDetector(
+      onTap: _openProfile,
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white,
+          border: Border.all(
+            color: Colors.white.withOpacity(.90),
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+              color: Colors.black.withOpacity(.15),
+            ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            firstLetter,
+            style: const TextStyle(
+              color: Color(0xFF0F4C75),
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================================================================
+  // APPBAR USER INFO
+  // ================================================================
+
+  Widget _appBarUserInfo() {
+    return Expanded(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _openProfile,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.userName.trim().isEmpty
+                    ? 'Marketing Executive'
+                    : widget.userName.trim(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 1),
+              const Text(
+                'Marketing Executive',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================================================================
+  // PROFILE ARROW
+  // ================================================================
+
+  Widget _profileArrow() {
+    return GestureDetector(
+      onTap: _openProfile,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: Colors.white.withOpacity(.10),
+          ),
+        ),
+        child: const Icon(
+          Icons.chevron_right_rounded,
+          color: Colors.white,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final firstLetter = widget.userName.isNotEmpty
-        ? widget.userName[0].toUpperCase()
-        : "M";
-
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FB),
 
-      // =========================
+      // ============================================================
       // PREMIUM APPBAR
-      // =========================
+      // ============================================================
+
       appBar: AppBar(
         elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -106,111 +233,190 @@ class _MarketingHomeState extends State<MarketingHome> {
             ),
           ),
         ),
+
+        titleSpacing: 16,
+
         title: Row(
           children: [
-            // Avatar
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: Colors.white,
-              child: Text(
-                firstLetter,
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
+            // --------------------------------------------------------
+            // PROFILE AVATAR
+            // --------------------------------------------------------
+
+            _profileAvatar(),
 
             const SizedBox(width: 10),
 
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.userName,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
+            // --------------------------------------------------------
+            // NAME + ROLE
+            // --------------------------------------------------------
+
+            _appBarUserInfo(),
+
+            const SizedBox(width: 6),
+
+            // --------------------------------------------------------
+            // PROFILE ARROW
+            // --------------------------------------------------------
+
+            _profileArrow(),
+          ],
+        ),
+      ),
+
+      // ============================================================
+      // PAGE BODY
+      // ============================================================
+
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 250),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        child: KeyedSubtree(
+          key: ValueKey<int>(_tab),
+          child: _pages[_tab],
+        ),
+      ),
+
+      // ============================================================
+      // PREMIUM BOTTOM NAVIGATION
+      // ============================================================
+
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.fromLTRB(
+          12,
+          0,
+          12,
+          12,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                blurRadius: 18,
+                color: Colors.black.withOpacity(.08),
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: BottomNavigationBar(
+              currentIndex: _tab,
+
+              onTap: (index) {
+                if (_tab == index) return;
+
+                setState(() {
+                  _tab = index;
+                });
+              },
+
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              type: BottomNavigationBarType.fixed,
+
+              selectedItemColor: const Color(0xFF0F4C75),
+              unselectedItemColor: const Color(0xFF8A94A6),
+
+              selectedLabelStyle: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
+              ),
+
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+
+              items: const [
+                // ----------------------------------------------------
+                // TODAY
+                // ----------------------------------------------------
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.today_outlined,
                   ),
+                  activeIcon: Icon(
+                    Icons.today_rounded,
+                  ),
+                  label: 'Today',
                 ),
-                const Text(
-                  "Marketing Executive",
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white70,
+
+                // ----------------------------------------------------
+                // VISITS
+                // ----------------------------------------------------
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.place_outlined,
                   ),
+                  activeIcon: Icon(
+                    Icons.place_rounded,
+                  ),
+                  label: 'Visits',
+                ),
+
+                // ----------------------------------------------------
+                // LEADS
+                // ----------------------------------------------------
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.leaderboard_outlined,
+                  ),
+                  activeIcon: Icon(
+                    Icons.leaderboard_rounded,
+                  ),
+                  label: 'Leads',
+                ),
+
+                // ----------------------------------------------------
+                // ATTENDANCE
+                // ----------------------------------------------------
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.fingerprint,
+                  ),
+                  activeIcon: Icon(
+                    Icons.fingerprint_rounded,
+                  ),
+                  label: 'Attendance',
+                ),
+
+                // ----------------------------------------------------
+                // HISTORY
+                // ----------------------------------------------------
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.history_outlined,
+                  ),
+                  activeIcon: Icon(
+                    Icons.history_rounded,
+                  ),
+                  label: 'History',
+                ),
+
+                // ----------------------------------------------------
+                // PROFILE
+                // ----------------------------------------------------
+
+                BottomNavigationBarItem(
+                  icon: Icon(
+                    Icons.person_outline_rounded,
+                  ),
+                  activeIcon: Icon(
+                    Icons.person_rounded,
+                  ),
+                  label: 'Profile',
                 ),
               ],
             ),
-          ],
-        ),
-      ),
-
-      // =========================
-      // PAGE BODY
-      // =========================
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 250),
-        child: _pages[_tab],
-      ),
-
-      // =========================
-      // PREMIUM BOTTOM NAV
-      // =========================
-      bottomNavigationBar: Container(
-        margin: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(22),
-          boxShadow: [
-            BoxShadow(
-              blurRadius: 18,
-              color: Colors.black.withOpacity(.08),
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: BottomNavigationBar(
-          currentIndex: _tab,
-          onTap: (i) => setState(() => _tab = i),
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          type: BottomNavigationBarType.fixed,
-
-          selectedItemColor: const Color(0xFF0F4C75),
-          unselectedItemColor: Colors.grey,
-
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.today),
-              label: 'Today',
-            ),
-
-            BottomNavigationBarItem(
-              icon: Icon(Icons.place),
-              label: 'Visits',
-            ),
-
-            BottomNavigationBarItem(
-              icon: Icon(Icons.leaderboard),
-              label: 'Leads',
-            ),
-
-            BottomNavigationBarItem(
-              icon: Icon(Icons.fingerprint),
-              label: 'Attendance',
-            ),
-
-            BottomNavigationBarItem(
-              icon: Icon(Icons.history),
-              label: 'History',
-            ),
-
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-          ],
+          ),
         ),
       ),
     );

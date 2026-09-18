@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -20,6 +21,10 @@ class NurseProfileScreen extends StatefulWidget {
 class _NurseProfileScreenState extends State<NurseProfileScreen> {
   bool _uploading = false;
   double _uploadProgress = 0;
+
+  final ImagePicker _imagePicker = ImagePicker();
+  bool _uploadingProfilePhoto = false;
+  double _profilePhotoProgress = 0;
 
   // ============================================================
   // HELPERS
@@ -443,6 +448,716 @@ class _NurseProfileScreenState extends State<NurseProfileScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+
+  // ============================================================
+  // PROFILE PHOTO
+  // ============================================================
+
+  String _profilePhotoUrl(Map<String, dynamic> data) {
+    final candidates = [
+      data['profilePhotoUrl'],
+      data['photoUrl'],
+      data['profilePhoto'],
+      data['photo'],
+    ];
+
+    for (final candidate in candidates) {
+      final value = candidate?.toString().trim() ?? '';
+      if (value.isNotEmpty) return value;
+    }
+
+    return '';
+  }
+
+  String _profilePhotoStoragePath(Map<String, dynamic> data) {
+    return (data['profilePhotoStoragePath'] ?? '').toString().trim();
+  }
+
+  Future<void> _showProfilePhotoViewer(String photoUrl, String name) async {
+    if (photoUrl.isEmpty) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(.92),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.all(12),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () => Navigator.pop(dialogContext),
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
+              Center(
+                child: InteractiveViewer(
+                  minScale: .8,
+                  maxScale: 4,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(22),
+                    child: Image.network(
+                      photoUrl,
+                      fit: BoxFit.contain,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return const SizedBox(
+                          width: 100,
+                          height: 100,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          ),
+                        );
+                      },
+                      errorBuilder: (_, __, ___) {
+                        return Container(
+                          width: 180,
+                          height: 180,
+                          decoration: BoxDecoration(
+                            color: const Color(0xffE8F1F8),
+                            borderRadius: BorderRadius.circular(22),
+                          ),
+                          child: const Icon(
+                            Icons.broken_image_outlined,
+                            color: Color(0xff0F4C75),
+                            size: 60,
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 12,
+                right: 8,
+                child: Material(
+                  color: Colors.white.withOpacity(.14),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => Navigator.pop(dialogContext),
+                    child: const Padding(
+                      padding: EdgeInsets.all(10),
+                      child: Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                        size: 23,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 18,
+                right: 18,
+                bottom: 16,
+                child: Text(
+                  name.isEmpty ? 'Profile Photo' : name,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _chooseProfilePhotoSource({
+    required Map<String, dynamic> data,
+  }) async {
+    if (_uploadingProfilePhoto) return;
+
+    final photoUrl = _profilePhotoUrl(data);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xffD7DEE7),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Profile Photo',
+                    style: TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xff17202A),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'View, change or remove your profile picture',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xff8A94A6),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+
+                if (photoUrl.isNotEmpty)
+                  _photoSourceButton(
+                    icon: Icons.visibility_outlined,
+                    title: 'View Photo',
+                    subtitle: 'Open the photo in full screen',
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _showProfilePhotoViewer(
+                        photoUrl,
+                        _value(data, 'name'),
+                      );
+                    },
+                  ),
+
+                _photoSourceButton(
+                  icon: Icons.photo_library_outlined,
+                  title: 'Choose from Gallery',
+                  subtitle: 'Select a photo from your phone',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickAndUploadProfilePhoto(
+                      ImageSource.gallery,
+                      currentData: data,
+                    );
+                  },
+                ),
+
+                _photoSourceButton(
+                  icon: Icons.camera_alt_outlined,
+                  title: 'Take a Photo',
+                  subtitle: 'Use your phone camera',
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickAndUploadProfilePhoto(
+                      ImageSource.camera,
+                      currentData: data,
+                    );
+                  },
+                ),
+
+                if (photoUrl.isNotEmpty)
+                  _photoSourceButton(
+                    icon: Icons.delete_outline_rounded,
+                    title: 'Remove Photo',
+                    subtitle: 'Delete the current profile picture',
+                    iconColor: Colors.redAccent,
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      _confirmRemoveProfilePhoto(data);
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _photoSourceButton({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    Color iconColor = const Color(0xff0F4C75),
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xffF8FAFC),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(
+          color: const Color(0xffE7EDF3),
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(17),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(.08),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xff17202A),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        color: Color(0xff94A3B8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: Color(0xffA0A9B5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadProfilePhoto(
+    ImageSource source, {
+    required Map<String, dynamic> currentData,
+  }) async {
+    if (_uploadingProfilePhoto) return;
+
+    try {
+      final picked = await _imagePicker.pickImage(
+        source: source,
+        maxWidth: 1400,
+        maxHeight: 1400,
+        imageQuality: 85,
+      );
+
+      if (picked == null) return;
+
+      final bytes = await picked.readAsBytes();
+
+      const maxPhotoSize = 10 * 1024 * 1024;
+      if (bytes.isEmpty) {
+        _showDocumentMessage(
+          'Unable to read the selected photo.',
+          isError: true,
+        );
+        return;
+      }
+
+      if (bytes.length > maxPhotoSize) {
+        _showDocumentMessage(
+          'Please select a photo smaller than 10 MB.',
+          isError: true,
+        );
+        return;
+      }
+
+      final extension = () {
+        final raw = picked.name.split('.').last.toLowerCase();
+        if (raw == 'jpeg') return 'jpg';
+        if (raw.isEmpty) return 'jpg';
+        return raw;
+      }();
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storagePath =
+          'staff-profile-photos/${widget.staffId}/'
+          '$timestamp-profile.$extension';
+
+      setState(() {
+        _uploadingProfilePhoto = true;
+        _profilePhotoProgress = 0;
+      });
+
+      final storageRef =
+          FirebaseStorage.instance.ref().child(storagePath);
+
+      final uploadTask = storageRef.putData(
+        bytes,
+        SettableMetadata(
+          contentType: extension == 'png'
+              ? 'image/png'
+              : 'image/jpeg',
+          cacheControl: 'public,max-age=31536000',
+        ),
+      );
+
+      final progressSubscription =
+          uploadTask.snapshotEvents.listen((snapshot) {
+        if (!mounted) return;
+
+        if (snapshot.totalBytes > 0) {
+          setState(() {
+            _profilePhotoProgress =
+                snapshot.bytesTransferred / snapshot.totalBytes;
+          });
+        }
+      });
+
+      try {
+        final snapshot = await uploadTask;
+        final downloadUrl =
+            await snapshot.ref.getDownloadURL();
+
+        final oldStoragePath =
+            _profilePhotoStoragePath(currentData);
+
+        await FirebaseFirestore.instance
+            .collection('staff')
+            .doc(widget.staffId)
+            .update({
+          'profilePhotoUrl': downloadUrl,
+          'profilePhotoStoragePath': storagePath,
+          'profilePhotoUpdatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // Delete the previous profile photo after the new one is saved.
+        if (oldStoragePath.isNotEmpty &&
+            oldStoragePath != storagePath) {
+          try {
+            await FirebaseStorage.instance
+                .ref()
+                .child(oldStoragePath)
+                .delete();
+          } catch (e) {
+            debugPrint(
+              'Old profile photo delete skipped: $e',
+            );
+          }
+        }
+
+        if (!mounted) return;
+
+        setState(() {
+          _uploadingProfilePhoto = false;
+          _profilePhotoProgress = 0;
+        });
+
+        _showDocumentMessage(
+          'Profile photo updated successfully.',
+        );
+      } finally {
+        await progressSubscription.cancel();
+      }
+    } catch (e) {
+      debugPrint('Nurse profile photo upload error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        _uploadingProfilePhoto = false;
+        _profilePhotoProgress = 0;
+      });
+
+      _showDocumentMessage(
+        'Failed to update profile photo.',
+        isError: true,
+      );
+    }
+  }
+
+  Future<void> _confirmRemoveProfilePhoto(
+    Map<String, dynamic> data,
+  ) async {
+    if (_uploadingProfilePhoto) return;
+
+    final photoUrl = _profilePhotoUrl(data);
+    if (photoUrl.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          title: const Text(
+            'Remove Profile Photo?',
+            style: TextStyle(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          content: const Text(
+            'Your current profile photo will be removed.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: () =>
+                  Navigator.pop(dialogContext, true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    final storagePath = _profilePhotoStoragePath(data);
+
+    try {
+      if (storagePath.isNotEmpty) {
+        try {
+          await FirebaseStorage.instance
+              .ref()
+              .child(storagePath)
+              .delete();
+        } catch (e) {
+          debugPrint(
+            'Profile photo storage delete skipped: $e',
+          );
+        }
+      }
+
+      await FirebaseFirestore.instance
+          .collection('staff')
+          .doc(widget.staffId)
+          .update({
+        'profilePhotoUrl': FieldValue.delete(),
+        'profilePhotoStoragePath': FieldValue.delete(),
+        'profilePhotoUpdatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      _showDocumentMessage(
+        'Profile photo removed.',
+      );
+    } catch (e) {
+      debugPrint('Remove profile photo error: $e');
+
+      if (!mounted) return;
+
+      _showDocumentMessage(
+        'Failed to remove profile photo.',
+        isError: true,
+      );
+    }
+  }
+
+  Widget _profileAvatar({
+    required String name,
+    required String photoUrl,
+    required bool isActive,
+    required Map<String, dynamic> data,
+  }) {
+    final firstLetter = name.isNotEmpty
+        ? name.substring(0, 1).toUpperCase()
+        : 'N';
+
+    return Stack(
+      alignment: Alignment.bottomRight,
+      children: [
+        GestureDetector(
+          onTap: photoUrl.isEmpty
+              ? () => _chooseProfilePhotoSource(data: data)
+              : () => _showProfilePhotoViewer(
+                    photoUrl,
+                    name,
+                  ),
+          child: Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.18),
+                  blurRadius: 25,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: CircleAvatar(
+              radius: 52,
+              backgroundColor: const Color(0xffE8F1F8),
+              backgroundImage: photoUrl.isNotEmpty
+                  ? NetworkImage(photoUrl)
+                  : null,
+              child: photoUrl.isEmpty
+                  ? Text(
+                      firstLetter,
+                      style: const TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xff0F4C75),
+                      ),
+                    )
+                  : null,
+            ),
+          ),
+        ),
+
+        GestureDetector(
+          onTap: () => _chooseProfilePhotoSource(data: data),
+          child: Container(
+            width: 31,
+            height: 31,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white,
+              border: Border.all(
+                color: const Color(0xff0F4C75),
+                width: 2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.14),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: _uploadingProfilePhoto
+                ? const Padding(
+                    padding: EdgeInsets.all(7),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xff0F4C75),
+                    ),
+                  )
+                : const Icon(
+                    Icons.camera_alt_rounded,
+                    color: Color(0xff0F4C75),
+                    size: 16,
+                  ),
+          ),
+        ),
+
+        Positioned(
+          left: 4,
+          bottom: 4,
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isActive
+                  ? const Color(0xff22C55E)
+                  : const Color(0xffEF4444),
+              border: Border.all(
+                color: const Color(0xff0F4C75),
+                width: 2,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _profilePhotoUploadProgress() {
+    if (!_uploadingProfilePhoto) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.cloud_upload_outlined,
+                color: Colors.white,
+                size: 16,
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  'Uploading profile photo...',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                '${(_profilePhotoProgress * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: LinearProgressIndicator(
+              value: _profilePhotoProgress,
+              minHeight: 5,
+              backgroundColor: Colors.white.withOpacity(.16),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Colors.white,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1367,6 +2082,9 @@ class _NurseProfileScreenState extends State<NurseProfileScreen> {
             ? name.substring(0, 1).toUpperCase()
             : 'N';
 
+        final profilePhotoUrl =
+            _profilePhotoUrl(data);
+
         // ======================================================
         // SERVICES
         // ======================================================
@@ -1513,73 +2231,11 @@ class _NurseProfileScreenState extends State<NurseProfileScreen> {
                             // AVATAR
                             // ======================================
 
-                            Stack(
-                              alignment:
-                                  Alignment.bottomRight,
-                              children: [
-                                Container(
-                                  padding:
-                                      const EdgeInsets.all(5),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black
-                                            .withOpacity(.18),
-                                        blurRadius: 25,
-                                        offset:
-                                            const Offset(0, 10),
-                                      ),
-                                    ],
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 52,
-                                    backgroundColor:
-                                        const Color(0xffE8F1F8),
-                                    child: Text(
-                                      firstLetter,
-                                      style:
-                                          const TextStyle(
-                                        fontSize: 40,
-                                        fontWeight:
-                                            FontWeight.w900,
-                                        color:
-                                            Color(0xff0F4C75),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-
-                                Container(
-                                  width: 27,
-                                  height: 27,
-                                  decoration:
-                                      BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: isActive
-                                        ? const Color(
-                                            0xff22C55E,
-                                          )
-                                        : const Color(
-                                            0xffEF4444,
-                                          ),
-                                    border: Border.all(
-                                      color:
-                                          const Color(
-                                              0xff0F4C75),
-                                      width: 3,
-                                    ),
-                                  ),
-                                  child: Icon(
-                                    isActive
-                                        ? Icons.check
-                                        : Icons.close,
-                                    color: Colors.white,
-                                    size: 14,
-                                  ),
-                                ),
-                              ],
+                            _profileAvatar(
+                              name: name,
+                              photoUrl: profilePhotoUrl,
+                              isActive: isActive,
+                              data: data,
                             ),
 
                             const SizedBox(height: 16),
@@ -1613,6 +2269,25 @@ class _NurseProfileScreenState extends State<NurseProfileScreen> {
                                 color: Colors.white70,
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 8),
+
+                            GestureDetector(
+                              onTap: () =>
+                                  _chooseProfilePhotoSource(
+                                data: data,
+                              ),
+                              child: Text(
+                                profilePhotoUrl.isEmpty
+                                    ? 'Add profile photo'
+                                    : 'Tap photo to view • tap camera to change',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
 
@@ -1655,6 +2330,8 @@ class _NurseProfileScreenState extends State<NurseProfileScreen> {
                                 ),
                               ],
                             ),
+
+                            _profilePhotoUploadProgress(),
 
                             const SizedBox(height: 18),
 
