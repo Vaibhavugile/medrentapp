@@ -645,648 +645,950 @@ Future<void> downloadSalarySlip() async {
     }
   }
   @override
-Widget build(BuildContext context) {
-  initializeResponsive(context);
 
-  final filteredRecords = selectedFilter == "all"
-      ? records
-      : records.where((e) => e["type"] == selectedFilter).toList();
+  @override
+  Widget build(BuildContext context) {
+    initializeResponsive(context);
 
-  if (loading) {
-    return const Scaffold(
-      body: Center(
-        child: CircularProgressIndicator(),
+    final filteredRecords = selectedFilter == "all"
+        ? records
+        : records.where((e) => e["type"] == selectedFilter).toList();
+
+    if (loading) {
+      return const Scaffold(
+        backgroundColor: _AttendanceTheme.background,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: _AttendanceTheme.primary,
+            strokeWidth: 2.8,
+          ),
+        ),
+      );
+    }
+
+    final presentLike = present + grace;
+    final totalDays = records.where((r) => r["shift"] == 1).length;
+    final attendancePercent =
+        totalDays == 0 ? 0.0 : (presentLike / totalDays) * 100;
+
+    return Scaffold(
+      backgroundColor: _AttendanceTheme.background,
+      body: SafeArea(
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: _buildPremiumHeader()),
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(pagePadding, 14, pagePadding, 28),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _buildMonthCard(),
+                  const SizedBox(height: 14),
+                  _buildPerformanceCard(attendancePercent),
+                  const SizedBox(height: 14),
+                  _buildSummaryGrid(),
+                  const SizedBox(height: 14),
+                  _buildSalaryCard(),
+                  const SizedBox(height: 22),
+                  _buildDailyHeader(filteredRecords.length),
+                  const SizedBox(height: 10),
+                  if (filteredRecords.isEmpty)
+                    _buildEmptyState()
+                  else
+                    ...filteredRecords.map(_buildAttendanceTimelineCard),
+                ]),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  return Scaffold(
-    backgroundColor: const Color(0xffF5F7FB),
-
-    appBar: AppBar(
-      elevation: 0,
-      centerTitle: false,
-      title: Text(
-        "Attendance History",
-        style: TextStyle(
-          fontSize: titleFont + 4,
-          fontWeight: FontWeight.bold,
+  Widget _buildPremiumHeader() {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(pagePadding, 18, pagePadding, 22),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_AttendanceTheme.heroDark, _AttendanceTheme.primary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
         ),
       ),
-      flexibleSpace: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Color(0xff2C3E50),
-              Color(0xff4CA1AF),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-      ),
-      actions: [
-        IconButton(
-          onPressed: pickMonth,
-          icon: const Icon(Icons.calendar_month),
-        ),
-      ],
-    ),
-
-    body: SafeArea(
-      child: ListView(
-        padding: EdgeInsets.all(pagePadding),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          //--------------------------------------
-          // MONTH HEADER
-          //--------------------------------------
-
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: pagePadding,
-              vertical: pagePadding,
-            ),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(cardRadius),
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xff4CA1AF),
-                  Color(0xff2C3E50),
-                ],
+          Row(
+            children: [
+              _headerIconButton(
+                icon: Icons.arrow_back_rounded,
+                onTap: () => Navigator.maybePop(context),
               ),
-            ),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 10,
-              children: [
-
-                Text(
-                  "Month : $monthKey",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: titleFont,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-
-                IconButton(
-                  onPressed: pickMonth,
-                  icon: const Icon(
-                    Icons.edit_calendar,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          SizedBox(height: pagePadding),
-
-          //--------------------------------------
-          // SUMMARY GRID
-          //--------------------------------------
-
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: 4,
-            gridDelegate:
-                SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio:
-                  isSmallPhone
-                      ? 1.55
-                      : 2.1,
-            ),
-            itemBuilder: (context, index) {
-              switch (index) {
-                case 0:
-                  return _summaryCard(
-                    "Present",
-                    present,
-                    Colors.green,
-                    "present",
-                  );
-
-                case 1:
-                  return _summaryCard(
-                    "Grace",
-                    grace,
-                    Colors.orange,
-                    "grace",
-                  );
-
-                case 2:
-                  return _summaryCard(
-                    "Half Day",
-                    half,
-                    Colors.blue,
-                    "half",
-                  );
-
-                default:
-                  return _summaryCard(
-                    "Absent",
-                    absent,
-                    Colors.red,
-                    "absent",
-                  );
-              }
-            },
-          ),
-
-          SizedBox(height: pagePadding),
-
-          //--------------------------------------
-          // SALARY
-          //--------------------------------------
-
-          Container(
-            padding: EdgeInsets.all(pagePadding),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius:
-                  BorderRadius.circular(cardRadius),
-              boxShadow: [
-                BoxShadow(
-                  color:
-                      Colors.black.withOpacity(.05),
-                  blurRadius: 12,
-                  offset: const Offset(0, 5),
-                )
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.start,
-              children: [
-
-                Text(
-                  "Salary Summary",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: titleFont,
-                  ),
-                ),
-
-                SizedBox(height: pagePadding),
-
-                _salaryRow(
-                  "Total Hours",
-                  hhmm(totalMinutes),
-                ),
-
-                const SizedBox(height: 8),
-
-                _salaryRow(
-                  "Calculated Salary",
-                  "₹${salary.round()}",
-                  valueColor: Colors.blue,
-                  bold: true,
-                ),
-
-                const SizedBox(height: 8),
-
-                _salaryRow(
-                  "Base Monthly Salary",
-                  "₹${monthlySalary.round()}",
-                ),
-                const SizedBox(height: 16),
-
-if (salarySlipUrl != null && salarySlipUrl!.isNotEmpty)
-  SizedBox(
-    width: double.infinity,
-    child: ElevatedButton.icon(
-      onPressed: openSalarySlip,
-      icon: const Icon(Icons.picture_as_pdf),
-      label: const Text("View Salary Slip"),
-      style: ElevatedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(vertical: 13),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    ),
-  ),
-              ],
-            ),
-          ),
-
-          SizedBox(height: pagePadding),
-
-          //--------------------------------------
-          // TITLE
-          //--------------------------------------
-
-          Text(
-            "Daily Attendance",
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: titleFont,
-            ),
-          ),
-
-          const SizedBox(height: 12),
-
-          //--------------------------------------
-          // DAILY CARDS
-          //--------------------------------------
-
-          ...filteredRecords.map((r) {
-
-           final sunday = isSunday(r["date"]);
-final color = sunday
-    ? Colors.red
-    : getTypeColor(r["type"]);
-
-           return Card(
-  elevation: 3,
-  margin: const EdgeInsets.only(bottom: 16),
-  color: sunday
-      ? Colors.red.withOpacity(0.06)
-      : Colors.white,
-  shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(cardRadius),
-    side: BorderSide(
-      color: sunday
-          ? Colors.red.withOpacity(0.35)
-          : Colors.transparent,
-      width: sunday ? 1.2 : 0,
-    ),
-  ),
-              child: Padding(
-                padding: EdgeInsets.all(pagePadding),
-
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-
-                    final compact =
-                        constraints.maxWidth < 360;
-
-                    return Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
-                      children: [
-
-                       Text(
-  sunday ? "${r["date"]} • SUNDAY" : r["date"],
-  style: TextStyle(
-    fontSize: titleFont,
-    fontWeight: FontWeight.bold,
-    color: sunday ? Colors.red : Colors.black87,
-  ),
-),
-const SizedBox(height: 6),
-
-Container(
-  padding: const EdgeInsets.symmetric(
-    horizontal: 10,
-    vertical: 5,
-  ),
-  decoration: BoxDecoration(
-    color: Colors.blue.withOpacity(.10),
-    borderRadius: BorderRadius.circular(20),
-  ),
-  child: Text(
-    "Shift ${r["shift"]}",
-    style: TextStyle(
-      fontSize: bodyFont,
-      fontWeight: FontWeight.w600,
-      color: Colors.blue,
-    ),
-  ),
-),
-                        const SizedBox(height: 10),
-
-                        Wrap(
-                          runSpacing: 6,
-                          children: [
-
-                            Text(
-                              "🟢 Check In : ${formatTime(r["checkInServer"])}",
-                              style: TextStyle(
-                                fontSize: bodyFont,
-                              ),
-                            ),
-
-                            Text(
-                              "🔴 Check Out : ${formatTime(r["checkOutServer"])}",
-                              style: TextStyle(
-                                fontSize: bodyFont,
-                              ),
-                            ),
-
-                            Text(
-                              "⏱ Hours : ${hhmm(r["minutes"])}",
-                              style: TextStyle(
-                                fontSize: bodyFont,
-                                color:
-                                    Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-
-                            if (r["checkInPhotoUrl"] !=
-                                null)
-                              _attendancePhoto(
-                                title: "Check In",
-                                image:
-                                    r["checkInPhotoUrl"],
-                              ),
-
-                            if (r["checkOutPhotoUrl"] !=
-                                null)
-                              _attendancePhoto(
-                                title: "Check Out",
-                                image:
-                                    r["checkOutPhotoUrl"],
-                              ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        Align(
-                          alignment:
-                              Alignment.centerRight,
-                          child: Container(
-                            padding:
-                                EdgeInsets.symmetric(
-                              horizontal:
-                                  compact ? 12 : 16,
-                              vertical:
-                                  compact ? 6 : 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color:
-                                  color.withOpacity(.12),
-                              borderRadius:
-                                  BorderRadius.circular(
-                                      30),
-                            ),
-                            child: Text(
-                              r["type"]
-                                  .toUpperCase(),
-                              style: TextStyle(
-                                color: color,
-                                fontWeight:
-                                    FontWeight.bold,
-                                fontSize: bodyFont,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Attendance History",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: titleFont + 2,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -.3,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      "Attendance • Hours • Salary",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(.72),
+                        fontSize: bodyFont,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            );
-          }).toList(),
+              _headerIconButton(
+                icon: Icons.calendar_month_rounded,
+                onTap: pickMonth,
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(.13),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.white.withOpacity(.16)),
+                ),
+                child: const Icon(
+                  Icons.calendar_today_rounded,
+                  color: Colors.white,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      monthKey,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: titleFont + 1,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      "Monthly attendance overview",
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(.68),
+                        fontSize: bodyFont - .5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _headerMetric("Hours", hhmm(totalMinutes)),
+            ],
+          ),
         ],
       ),
-    ),
-  );
-}
-Widget _summaryCard(
-  String title,
-  int value,
-  Color color,
-  String filter,
-) {
-  final bool selected = selectedFilter == filter;
+    );
+  }
 
-  return Material(
-    color: Colors.transparent,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(cardRadius),
-      onTap: () {
-        setState(() {
-          selectedFilter = selected ? "all" : filter;
-        });
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeInOut,
-        padding: EdgeInsets.all(
-          isSmallPhone ? 10 : 14,
-        ),
-        decoration: BoxDecoration(
-          color: selected
-              ? color.withOpacity(.12)
-              : Colors.white,
-          borderRadius:
-              BorderRadius.circular(cardRadius),
-          border: Border.all(
-            color: selected
-                ? color
-                : Colors.grey.shade200,
-            width: selected ? 2 : 1,
+  Widget _headerIconButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white.withOpacity(.11),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withOpacity(.14)),
           ),
-          boxShadow: [
-            BoxShadow(
-              blurRadius: selected ? 18 : 10,
-              offset: const Offset(0, 4),
-              color: color.withOpacity(
-                selected ? .20 : .05,
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _headerMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(label,
+              style: TextStyle(
+                color: Colors.white.withOpacity(.62),
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 2),
+          Text(value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthCard() {
+    return Material(
+      color: _AttendanceTheme.surface,
+      borderRadius: BorderRadius.circular(cardRadius),
+      child: InkWell(
+        onTap: pickMonth,
+        borderRadius: BorderRadius.circular(cardRadius),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(cardRadius),
+            border: Border.all(color: _AttendanceTheme.border),
+            boxShadow: _AttendanceTheme.shadow,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _AttendanceTheme.primarySoft,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(Icons.date_range_rounded,
+                    color: _AttendanceTheme.primary, size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Selected month",
+                        style: TextStyle(
+                          color: _AttendanceTheme.muted,
+                          fontSize: bodyFont - 1,
+                          fontWeight: FontWeight.w500,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(monthKey,
+                        style: TextStyle(
+                          color: _AttendanceTheme.text,
+                          fontSize: subtitleFont,
+                          fontWeight: FontWeight.w800,
+                        )),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded,
+                  color: _AttendanceTheme.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPerformanceCard(double attendancePercent) {
+    final percent = attendancePercent.clamp(0.0, 100.0);
+    final presentLike = present + grace;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surface,
+        borderRadius: BorderRadius.circular(cardRadius),
+        border: Border.all(color: _AttendanceTheme.border),
+        boxShadow: _AttendanceTheme.shadow,
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            height: 72,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: percent / 100,
+                  strokeWidth: 7,
+                  backgroundColor: _AttendanceTheme.primarySoft,
+                  color: _AttendanceTheme.primary,
+                ),
+                Text("${percent.round()}%",
+                    style: const TextStyle(
+                      color: _AttendanceTheme.text,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    )),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("Attendance performance",
+                    style: TextStyle(
+                      color: _AttendanceTheme.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    )),
+                const SizedBox(height: 5),
+                Text(
+                  "$presentLike present/grace days • $absent absent • $half half day",
+                  style: TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: bodyFont,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryGrid() {
+    final items = [
+      ("Present", present, _AttendanceTheme.green, "present", Icons.check_circle_rounded),
+      ("Grace", grace, _AttendanceTheme.orange, "grace", Icons.schedule_rounded),
+      ("Half Day", half, _AttendanceTheme.blue, "half", Icons.timelapse_rounded),
+      ("Absent", absent, _AttendanceTheme.red, "absent", Icons.cancel_rounded),
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: isTablet ? 4 : 2,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: isSmallPhone ? 1.55 : isTablet ? 1.55 : 1.75,
+      ),
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return _premiumSummaryCard(
+          title: item.$1,
+          value: item.$2,
+          color: item.$3,
+          filter: item.$4,
+          icon: item.$5,
+        );
+      },
+    );
+  }
+
+  Widget _premiumSummaryCard({
+    required String title,
+    required int value,
+    required Color color,
+    required String filter,
+    required IconData icon,
+  }) {
+    final selected = selectedFilter == filter;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(cardRadius),
+      child: InkWell(
+        onTap: () => setState(() {
+          selectedFilter = selected ? "all" : filter;
+        }),
+        borderRadius: BorderRadius.circular(cardRadius),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: selected ? color.withOpacity(.08) : _AttendanceTheme.surface,
+            borderRadius: BorderRadius.circular(cardRadius),
+            border: Border.all(
+              color: selected ? color.withOpacity(.55) : _AttendanceTheme.border,
+              width: selected ? 1.4 : 1,
+            ),
+            boxShadow: _AttendanceTheme.shadow,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(.11),
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _AttendanceTheme.muted,
+                          fontSize: bodyFont - 1,
+                          fontWeight: FontWeight.w600,
+                        )),
+                    const SizedBox(height: 2),
+                    Text("$value",
+                        style: TextStyle(
+                          color: selected ? color : _AttendanceTheme.text,
+                          fontSize: valueFont - 1,
+                          fontWeight: FontWeight.w800,
+                        )),
+                  ],
+                ),
+              ),
+              if (selected)
+                Icon(Icons.check_circle_rounded, color: color, size: 19),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSalaryCard() {
+    final hasSlip = salarySlipUrl != null && salarySlipUrl!.isNotEmpty;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surface,
+        borderRadius: BorderRadius.circular(cardRadius),
+        border: Border.all(color: _AttendanceTheme.border),
+        boxShadow: _AttendanceTheme.shadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _AttendanceTheme.greenSoft,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: const Icon(Icons.payments_rounded,
+                    color: _AttendanceTheme.green, size: 21),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text("Salary Summary",
+                        style: TextStyle(
+                          color: _AttendanceTheme.text,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                        )),
+                    SizedBox(height: 2),
+                    Text("Calculated from monthly attendance",
+                        style: TextStyle(
+                          color: _AttendanceTheme.muted,
+                          fontSize: 12,
+                        )),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: _AttendanceTheme.surfaceAlt,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              children: [
+                _salaryRow("Total Hours", hhmm(totalMinutes)),
+                _salaryDivider(),
+                _salaryRow("Calculated Salary", "₹${salary.round()}",
+                    valueColor: _AttendanceTheme.green, bold: true),
+                _salaryDivider(),
+                _salaryRow("Base Monthly Salary", "₹${monthlySalary.round()}"),
+              ],
+            ),
+          ),
+          if (hasSlip) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: openSalarySlip,
+                icon: const Icon(Icons.picture_as_pdf_rounded, size: 19),
+                label: const Text("View Salary Slip"),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: _AttendanceTheme.primary,
+                  side: const BorderSide(color: _AttendanceTheme.borderStrong),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                ),
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _salaryDivider() => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: Divider(height: 1, color: _AttendanceTheme.border),
+      );
+
+  Widget _buildDailyHeader(int count) {
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Daily Attendance",
+                  style: TextStyle(
+                    color: _AttendanceTheme.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  )),
+              SizedBox(height: 3),
+              Text("Check-in, check-out, hours and verification photos",
+                  style: TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: 12,
+                  )),
+            ],
+          ),
         ),
-        child: Row(
-          children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          decoration: BoxDecoration(
+            color: _AttendanceTheme.primarySoft,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text("$count records",
+              style: const TextStyle(
+                color: _AttendanceTheme.primary,
+                fontSize: 11,
+                fontWeight: FontWeight.w800,
+              )),
+        ),
+      ],
+    );
+  }
 
-            Container(
-              width: isSmallPhone ? 36 : 42,
-              height: isSmallPhone ? 36 : 42,
-              decoration: BoxDecoration(
-                color: color.withOpacity(.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.circle,
-                color: color,
-                size: isSmallPhone ? 10 : 12,
-              ),
+  Widget _buildAttendanceTimelineCard(Map<String, dynamic> r) {
+    final sunday = isSunday(r["date"]);
+    final color = sunday ? _AttendanceTheme.red : getTypeColor(r["type"]);
+    final minutes = r["minutes"] is int
+        ? r["minutes"] as int
+        : int.tryParse("${r["minutes"]}") ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 30,
+            child: Column(
+              children: [
+                Container(
+                  width: 14,
+                  height: 14,
+                  margin: const EdgeInsets.only(top: 21),
+                  decoration: BoxDecoration(
+                    color: _AttendanceTheme.surface,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color, width: 4),
+                  ),
+                ),
+                Container(
+                  width: 2,
+                  height: 185,
+                  color: _AttendanceTheme.border,
+                ),
+              ],
             ),
-
-            const SizedBox(width: 10),
-
-            Expanded(
+          ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: sunday ? _AttendanceTheme.redSoft : _AttendanceTheme.surface,
+                borderRadius: BorderRadius.circular(cardRadius),
+                border: Border.all(
+                  color: sunday
+                      ? _AttendanceTheme.red.withOpacity(.25)
+                      : _AttendanceTheme.border,
+                ),
+                boxShadow: _AttendanceTheme.shadow,
+              ),
               child: Column(
-                mainAxisAlignment:
-                    MainAxisAlignment.center,
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
-                  Text(
-                    title,
-                    maxLines: 2,
-                    overflow:
-                        TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize:
-                          isSmallPhone ? 11 : 13,
-                      color: Colors.grey[700],
-                      fontWeight:
-                          FontWeight.w600,
-                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              sunday ? "${r["date"]} • SUNDAY" : "${r["date"]}",
+                              style: TextStyle(
+                                color: sunday
+                                    ? _AttendanceTheme.red
+                                    : _AttendanceTheme.text,
+                                fontSize: subtitleFont,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text("Shift ${r["shift"]}",
+                                style: const TextStyle(
+                                  color: _AttendanceTheme.muted,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                )),
+                          ],
+                        ),
+                      ),
+                      _statusBadge("${r["type"]}", color),
+                    ],
                   ),
-
-                  const SizedBox(height: 4),
-
-                  Text(
-                    "$value",
-                    style: TextStyle(
-                      fontSize: valueFont,
-                      color: selected
-                          ? color
-                          : Colors.black87,
-                      fontWeight:
-                          FontWeight.bold,
-                    ),
+                  const SizedBox(height: 15),
+                  _timelineInfoRow(
+                    icon: Icons.login_rounded,
+                    title: "Check In",
+                    value: formatTime(r["checkInServer"]),
+                    color: _AttendanceTheme.green,
                   ),
+                  const SizedBox(height: 9),
+                  _timelineInfoRow(
+                    icon: Icons.logout_rounded,
+                    title: "Check Out",
+                    value: formatTime(r["checkOutServer"]),
+                    color: _AttendanceTheme.red,
+                  ),
+                  const SizedBox(height: 9),
+                  _timelineInfoRow(
+                    icon: Icons.timer_outlined,
+                    title: "Duration",
+                    value: hhmm(minutes),
+                    color: _AttendanceTheme.primary,
+                  ),
+                  if ((r["note"] ?? "").toString().trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(11),
+                      decoration: BoxDecoration(
+                        color: _AttendanceTheme.surfaceAlt,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(r["note"].toString(),
+                          style: const TextStyle(
+                            color: _AttendanceTheme.textSoft,
+                            fontSize: 12,
+                            height: 1.35,
+                          )),
+                    ),
+                  ],
+                  if (r["checkInPhotoUrl"] != null ||
+                      r["checkOutPhotoUrl"] != null) ...[
+                    const SizedBox(height: 14),
+                    const Text("Verification Photos",
+                        style: TextStyle(
+                          color: _AttendanceTheme.textSoft,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        )),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        if (r["checkInPhotoUrl"] != null)
+                          _attendancePhoto(
+                              title: "Check In",
+                              image: r["checkInPhotoUrl"]),
+                        if (r["checkOutPhotoUrl"] != null)
+                          _attendancePhoto(
+                              title: "Check Out",
+                              image: r["checkOutPhotoUrl"]),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
 
-            AnimatedSwitcher(
-              duration:
-                  const Duration(milliseconds: 250),
-              child: selected
-                  ? Icon(
-                      Icons.check_circle,
-                      color: color,
-                      key: ValueKey(filter),
-                    )
-                  : const SizedBox.shrink(),
-            ),
-          ],
+  Widget _statusBadge(String type, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        type.toUpperCase(),
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.w800,
+          letterSpacing: .3,
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-Widget _attendancePhoto({
-  required String title,
-  required String image,
-}) {
-  return SizedBox(
-    width: imageWidth,
-    child: Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
+  Widget _timelineInfoRow({
+    required IconData icon,
+    required String title,
+    required String value,
+    required Color color,
+  }) {
+    return Row(
       children: [
-
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: bodyFont,
-            fontWeight: FontWeight.w600,
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: color.withOpacity(.10),
+            borderRadius: BorderRadius.circular(10),
           ),
+          child: Icon(icon, color: color, size: 16),
         ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(title,
+              style: const TextStyle(
+                color: _AttendanceTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              )),
+        ),
+        Text(value,
+            style: const TextStyle(
+              color: _AttendanceTheme.text,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            )),
+      ],
+    );
+  }
 
-        const SizedBox(height: 6),
+  Widget _buildEmptyState() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 34),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surface,
+        borderRadius: BorderRadius.circular(cardRadius),
+        border: Border.all(color: _AttendanceTheme.border),
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.event_busy_rounded,
+              size: 44, color: _AttendanceTheme.muted),
+          SizedBox(height: 12),
+          Text("No attendance records",
+              style: TextStyle(
+                color: _AttendanceTheme.text,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              )),
+          SizedBox(height: 5),
+          Text(
+            "Try another filter or select a different month.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _AttendanceTheme.muted,
+              fontSize: 12,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    FullScreenImage(
-                  imageUrl: image,
+  Widget _summaryCard(
+    String title,
+    int value,
+    Color color,
+    String filter,
+  ) {
+    return _premiumSummaryCard(
+      title: title,
+      value: value,
+      color: color,
+      filter: filter,
+      icon: Icons.circle,
+    );
+  }
+
+  Widget _attendancePhoto({
+    required String title,
+    required String image,
+  }) {
+    return SizedBox(
+      width: imageWidth,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: TextStyle(
+                color: _AttendanceTheme.textSoft,
+                fontSize: bodyFont,
+                fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => FullScreenImage(imageUrl: image),
                 ),
-              ),
-            );
-          },
-          child: Hero(
-            tag: image,
-            child: ClipRRect(
-              borderRadius:
-                  BorderRadius.circular(cardRadius),
-              child: Image.network(
-                image,
-                width: imageWidth,
-                height: imageHeight,
-                fit: BoxFit.cover,
-                errorBuilder:
-                    (_, __, ___) => Container(
+              );
+            },
+            child: Hero(
+              tag: image,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(cardRadius),
+                child: Image.network(
+                  image,
                   width: imageWidth,
                   height: imageHeight,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade200,
-                    borderRadius:
-                        BorderRadius.circular(
-                            cardRadius),
-                  ),
-                  child: const Icon(
-                    Icons.broken_image,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    width: imageWidth,
+                    height: imageHeight,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: _AttendanceTheme.surfaceAlt,
+                      borderRadius: BorderRadius.circular(cardRadius),
+                    ),
+                    child: const Icon(Icons.broken_image_rounded,
+                        color: _AttendanceTheme.muted),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
+
+  Widget _salaryRow(
+    String title,
+    String value, {
+    bool bold = false,
+    Color? valueColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(title,
+                style: TextStyle(
+                  color: _AttendanceTheme.muted,
+                  fontSize: bodyFont,
+                  fontWeight: FontWeight.w500,
+                )),
+          ),
+          Flexible(
+            child: Text(value,
+                textAlign: TextAlign.end,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: valueColor ?? _AttendanceTheme.text,
+                  fontSize: bodyFont + 1,
+                  fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+                )),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-Widget _salaryRow(
-  String title,
-  String value, {
-  bool bold = false,
-  Color? valueColor,
-}) {
-  return Padding(
-    padding:
-        const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      children: [
+class _AttendanceTheme {
+  static const background = Color(0xffF6F8FC);
+  static const surface = Color(0xffFFFFFF);
+  static const surfaceAlt = Color(0xffF1F4F9);
 
-        Expanded(
-          child: Text(
-            title,
-            style: TextStyle(
-              fontSize: bodyFont,
-            ),
-          ),
-        ),
+  static const text = Color(0xff101828);
+  static const textSoft = Color(0xff344054);
+  static const muted = Color(0xff667085);
 
-        Flexible(
-          child: Text(
-            value,
-            textAlign: TextAlign.end,
-            overflow:
-                TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: bodyFont + 1,
-              fontWeight: bold
-                  ? FontWeight.bold
-                  : FontWeight.w500,
-              color: valueColor,
-            ),
-          ),
+  static const border = Color(0xffE4E7EC);
+  static const borderStrong = Color(0xffD0D5DD);
+
+  static const primary = Color(0xff3157D5);
+  static const primarySoft = Color(0xffEEF2FF);
+  static const heroDark = Color(0xff172554);
+
+  static const green = Color(0xff059669);
+  static const greenSoft = Color(0xffECFDF3);
+  static const blue = Color(0xff2563EB);
+  static const orange = Color(0xffD97706);
+  static const red = Color(0xffDC2626);
+  static const redSoft = Color(0xffFEF2F2);
+
+  static List<BoxShadow> get shadow => [
+        BoxShadow(
+          color: Colors.black.withOpacity(.045),
+          blurRadius: 18,
+          offset: const Offset(0, 7),
         ),
-      ],
-    ),
-  );
+      ];
 }
-    }

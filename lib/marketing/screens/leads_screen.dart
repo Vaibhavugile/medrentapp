@@ -33,6 +33,12 @@ bool _loadingLeadSources = false;
 bool _duplicatesOnly = false;
   Map<String, dynamic> _draft = {};
 
+  /// Lightweight relationship cache used by the lead cards.
+  /// Each card can independently discover whether a requirement, quotation,
+  /// or order exists for the lead without changing the existing LeadsService.
+  final Map<String, _LeadTimelineData> _timelineCache = {};
+  final Set<String> _timelineLoading = {};
+
   bool loading = true;
 
   final _customerCtrl = TextEditingController();
@@ -2099,542 +2105,1091 @@ Widget _buildSourceEmptyState() {
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
     final items = _filtered;
     final totalLeads = items.length;
 
+    if (loading) {
+      return const Scaffold(
+        backgroundColor: _LeadTheme.background,
+        body: Center(
+          child: CircularProgressIndicator(
+            strokeWidth: 2.6,
+            color: _LeadTheme.primary,
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
-      
-      floatingActionButton: FloatingActionButton.extended(
-  onPressed: _addLeadSheet,
-  icon: const Icon(Icons.add),
-  label: const Text("Add Lead"),
-),
-      body: Column(
-        children: [
-
-          /// SEARCH
-         Padding(
-
-  padding: const EdgeInsets.all(12),
-
-  child: Column(
-
-    children: [
-
-      /// SEARCH
-
-      TextField(
-
-        decoration: InputDecoration(
-
-          hintText: "Search leads...",
-
-          prefixIcon:
-              const Icon(Icons.search),
-
-          filled: true,
-
-          fillColor: Colors.white,
-
-          border: OutlineInputBorder(
-
-            borderRadius:
-                BorderRadius.circular(16),
-
-            borderSide:
-                BorderSide.none,
-          ),
-        ),
-
-        onChanged: (v) {
-
-          setState(() {
-
-            _q = v;
-
-          });
-        },
-      ),
-
-      const SizedBox(height: 12),
-
-      /// FILTERS
-
-      SingleChildScrollView(
-
-        scrollDirection: Axis.horizontal,
-
-        child: Row(
-
+      backgroundColor: _LeadTheme.background,
+      floatingActionButton: _buildFloatingAddButton(),
+      body: SafeArea(
+        child: Column(
           children: [
-
-            /// SORT
-
-            Container(
-
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 14,
-              ),
-
-              decoration: BoxDecoration(
-
-                color: Colors.white,
-
-                borderRadius:
-                    BorderRadius.circular(14),
-              ),
-
-              child:
-                  DropdownButtonHideUnderline(
-
-                child: DropdownButton<String>(
-
-                  value: _sortBy,
-
-                  items: const [
-
-                    DropdownMenuItem(
-
-                      value: 'latest',
-
-                      child: Text(
-                        "Latest",
+            _buildPremiumHeader(items),
+            _buildSearchAndFilters(),
+            _buildLeadSummary(totalLeads),
+            Expanded(
+              child: items.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      color: _LeadTheme.primary,
+                      onRefresh: () async {
+                        await _loadLeadSources();
+                        if (mounted) setState(() {});
+                      },
+                      child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(
+                          parent: BouncingScrollPhysics(),
+                        ),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
+                        itemCount: items.length,
+                        itemBuilder: (_, i) => _buildLeadCard(items[i], i),
                       ),
                     ),
-
-                    DropdownMenuItem(
-
-                      value: 'oldest',
-
-                      child: Text(
-                        "Oldest",
-                      ),
-                    ),
-                  ],
-
-                  onChanged: (v) {
-
-                    setState(() {
-
-                      _sortBy = v!;
-
-                    });
-                  },
-                ),
-              ),
             ),
-
-            const SizedBox(width: 10),
-
-            /// TYPE FILTER
-
-            Container(
-
-              padding:
-                  const EdgeInsets.symmetric(
-                horizontal: 14,
-              ),
-
-              decoration: BoxDecoration(
-
-                color: Colors.white,
-
-                borderRadius:
-                    BorderRadius.circular(14),
-              ),
-
-              child:
-                  DropdownButtonHideUnderline(
-
-                child: DropdownButton<String>(
-
-                  value: _filterType,
-
-                  items: const [
-
-                    DropdownMenuItem(
-
-                      value: 'all',
-
-                      child: Text(
-                        "All Types",
-                      ),
-                    ),
-
-                    DropdownMenuItem(
-
-                      value: 'equipment',
-
-                      child: Text(
-                        "Equipment",
-                      ),
-                    ),
-
-                    DropdownMenuItem(
-
-                      value: 'nursing',
-
-                      child: Text(
-                        "Nursing",
-                      ),
-                    ),
-
-                    DropdownMenuItem(
-
-                      value: 'caretaker',
-
-                      child: Text(
-                        "Caretaker",
-                      ),
-                    ),
-                  ],
-
-                  onChanged: (v) {
-
-                    setState(() {
-
-                      _filterType = v!;
-
-                    });
-                  },
-                ),
-              ),
-            ),
-
-            const SizedBox(width: 10),
-
-            /// DUPLICATE FILTER
-
-            FilterChip(
-
-              label:
-                  const Text("Duplicates"),
-
-              selected:
-                  _duplicatesOnly,
-
-              onSelected: (v) {
-
-                setState(() {
-
-                  _duplicatesOnly = v;
-
-                });
-              },
-            ),
-
-            const SizedBox(width: 10),
-            OutlinedButton.icon(
-
-  onPressed: () async {
-
-    final picked =
-        await showDateRangePicker(
-
-      context: context,
-
-      firstDate:
-          DateTime(2023),
-
-      lastDate:
-          DateTime.now()
-              .add(
-        const Duration(days: 365),
+          ],
+        ),
       ),
     );
+  }
 
-    if (picked != null) {
+  Widget _buildPremiumHeader(List<Map<String, dynamic>> items) {
+    final active = items.where((l) {
+      final status = (l['status'] ?? 'new').toString().toLowerCase();
+      return status != 'closed' && status != 'lost';
+    }).length;
 
-      setState(() {
-
-        _dateRange = picked;
-      });
-    }
-  },
-
-  icon: const Icon(
-    Icons.date_range,
-  ),
-
-  label: Text(
-
-    _dateRange == null
-        ? "Date Filter"
-        : "${_dateRange!.start.day}/${_dateRange!.start.month} - ${_dateRange!.end.day}/${_dateRange!.end.month}",
-  ),
-),
-
-            /// CLEAR FILTERS
-
-            OutlinedButton.icon(
-
-              onPressed: () {
-
-                setState(() {
-
-                  _q = '';
-
-                  _sortBy = 'latest';
-
-                  _filterType = 'all';
-                  _dateRange = null;
-
-                  _duplicatesOnly = false;
-
-                });
-              },
-
-              icon: const Icon(
-                Icons.refresh,
-              ),
-
-              label: const Text(
-                "Reset",
-              ),
-            ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            _LeadTheme.heroDark,
+            _LeadTheme.heroLight,
           ],
         ),
-      ),
-    ],
-  ),
-),
-          /// STATUS TABS
-        Padding(
-
-  padding: const EdgeInsets.symmetric(
-    horizontal: 16,
-  ),
-
-  child: Row(
-
-    children: [
-
-      Container(
-
-        padding:
-            const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 10,
-        ),
-
-        decoration: BoxDecoration(
-
-          color:
-              Colors.indigo.withOpacity(.08),
-
-          borderRadius:
-              BorderRadius.circular(14),
-        ),
-
-        child: Row(
-
-          children: [
-
-            Icon(
-              Icons.auto_graph,
-              size: 18,
-              color:
-                  Colors.indigo.shade700,
-            ),
-
-            const SizedBox(width: 8),
-
-            Text(
-
-              "Total Leads: $totalLeads",
-
-              style: TextStyle(
-
-                fontWeight:
-                    FontWeight.w700,
-
-                color:
-                    Colors.indigo.shade700,
-              ),
-            ),
-          ],
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(28),
         ),
       ),
-    ],
-  ),
-),
-
-          const SizedBox(height: 10),
-
-          /// LEADS LIST
-          Expanded(
-            child: items.isEmpty
-                ? const Center(child: Text("No leads"))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: items.length,
-                    itemBuilder: (_, i) {
-
-                      final l = items[i];
-final color = Colors.indigo;
-                      return InkWell(
-  borderRadius: BorderRadius.circular(14),
-  onTap: () {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => LeadDetailsScreen(
-        lead: l,
-      ),
-    ),
-  );
-},
-  child: Container(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.surface,
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(.05),
-                              blurRadius: 8,
-                              offset: const Offset(0,3),
-                            )
-                          ],
-                        ),
-                       child: Padding(
-  padding: const EdgeInsets.all(18),
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-
-      /// TOP ROW
-      Row(
+      child: Row(
         children: [
-
-          CircleAvatar(
-            radius: 24,
-            backgroundColor: Colors.indigo.shade50,
-            child: Text(
-              (l['customerName'] ?? "C")
-                  .toString()[0]
-                  .toUpperCase(),
-              style: TextStyle(
-                color: Colors.indigo.shade700,
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.13),
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(
+                color: Colors.white.withOpacity(.14),
               ),
+            ),
+            child: const Icon(
+              Icons.groups_2_outlined,
+              color: Colors.white,
+              size: 26,
             ),
           ),
-
-          const SizedBox(width: 14),
-
+          const SizedBox(width: 13),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
-                Text(
-                  l['customerName'] ?? '',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
+                const Text(
+                  'Leads',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -.6,
                   ),
                 ),
-
-                const SizedBox(height: 8),
-
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
+                const SizedBox(height: 3),
+                Text(
+                  '$active active • Track every customer journey',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(.70),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.indigo.withOpacity(.10),
-                    borderRadius: BorderRadius.circular(100),
+                ),
+              ],
+            ),
+          ),
+          _headerIconButton(
+            Icons.refresh_rounded,
+            onTap: () {
+              if (!loading) setState(() {});
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerIconButton(
+    IconData icon, {
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white.withOpacity(.12),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: SizedBox(
+          width: 43,
+          height: 43,
+          child: Icon(
+            icon,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilters() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+      child: Column(
+        children: [
+          Container(
+            decoration: _leadCardDecoration(radius: 17),
+            child: TextField(
+              onChanged: (v) => setState(() => _q = v),
+              decoration: InputDecoration(
+                hintText: 'Search customer, phone, email, source...',
+                hintStyle: const TextStyle(
+                  color: _LeadTheme.muted,
+                  fontSize: 12.5,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  color: _LeadTheme.primary,
+                ),
+                suffixIcon: _q.isEmpty
+                    ? null
+                    : IconButton(
+                        onPressed: () => setState(() => _q = ''),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          size: 18,
+                          color: _LeadTheme.muted,
+                        ),
+                      ),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(17),
+                  borderSide: BorderSide.none,
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(17),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(17),
+                  borderSide: const BorderSide(
+                    color: _LeadTheme.primary,
+                    width: 1.3,
                   ),
-                  child: Text(
-                    (l['type'] ?? "Equipment")
-                        .toString()
-                        .toUpperCase(),
-                    style: TextStyle(
-                      color: Colors.indigo.shade700,
-                      fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 42,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              children: [
+                _filterDropdown(
+                  value: _sortBy,
+                  icon: Icons.swap_vert_rounded,
+                  items: const {
+                    'latest': 'Latest',
+                    'oldest': 'Oldest',
+                  },
+                  onChanged: (v) => setState(() => _sortBy = v),
+                ),
+                const SizedBox(width: 8),
+                _filterDropdown(
+                  value: _filterType,
+                  icon: Icons.category_outlined,
+                  items: const {
+                    'all': 'All Types',
+                    'equipment': 'Equipment',
+                    'nursing': 'Nursing',
+                    'caretaker': 'Caretaker',
+                  },
+                  onChanged: (v) => setState(() => _filterType = v),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  selected: _duplicatesOnly,
+                  label: const Text('Duplicates'),
+                  avatar: const Icon(Icons.copy_all_outlined, size: 16),
+                  onSelected: (v) => setState(() => _duplicatesOnly = v),
+                  selectedColor: _LeadTheme.error.withOpacity(.10),
+                  checkmarkColor: _LeadTheme.error,
+                  labelStyle: TextStyle(
+                    color: _duplicatesOnly
+                        ? _LeadTheme.error
+                        : _LeadTheme.textSoft,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  side: BorderSide(
+                    color: _duplicatesOnly
+                        ? _LeadTheme.error.withOpacity(.22)
+                        : _LeadTheme.border,
+                  ),
+                  backgroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _dateFilterButton(),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: _resetFilters,
+                  icon: const Icon(Icons.restart_alt_rounded, size: 17),
+                  label: const Text('Reset'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _LeadTheme.textSoft,
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: _LeadTheme.border),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    textStyle: const TextStyle(
                       fontSize: 11,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: Colors.grey,
-          ),
-        ],
-      ),
-
-      const SizedBox(height: 16),
-
-      Divider(
-        height: 1,
-        color: Colors.grey.shade200,
-      ),
-
-      const SizedBox(height: 16),
-
-      /// STATUS
-      Row(
-        children: [
-
-          _statusChip(
-            (l['status'] ?? 'new').toString(),
-          ),
-
-          if (l['isDuplicate'] == true) ...[
-            const SizedBox(width: 10),
-
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(.10),
-                borderRadius: BorderRadius.circular(100),
-              ),
-              child: const Text(
-                "Duplicate",
-                style: TextStyle(
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-              ),
-            ),
-          ],
-
-          const Spacer(),
-        ],
-      ),
-    ],
-  ),
-),
-                      ),
-                      );
-                    },
-                  ),
-          )
         ],
       ),
     );
   }
 
- 
+  Widget _filterDropdown({
+    required String value,
+    required IconData icon,
+    required Map<String, String> items,
+    required ValueChanged<String> onChanged,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: _LeadTheme.border),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: items.containsKey(value) ? value : items.keys.first,
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            size: 17,
+            color: _LeadTheme.muted,
+          ),
+          items: items.entries
+              .map(
+                (e) => DropdownMenuItem(
+                  value: e.key,
+                  child: Row(
+                    children: [
+                      Icon(icon, size: 16, color: _LeadTheme.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        e.value,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: _LeadTheme.textSoft,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _dateFilterButton() {
+    final label = _dateRange == null
+        ? 'Date'
+        : '${_dateRange!.start.day}/${_dateRange!.start.month} - '
+            '${_dateRange!.end.day}/${_dateRange!.end.month}';
+
+    return OutlinedButton.icon(
+      onPressed: () async {
+        final picked = await showDateRangePicker(
+          context: context,
+          firstDate: DateTime(2023),
+          lastDate: DateTime.now().add(const Duration(days: 365)),
+          initialDateRange: _dateRange,
+        );
+
+        if (picked != null && mounted) {
+          setState(() => _dateRange = picked);
+        }
+      },
+      icon: const Icon(Icons.date_range_rounded, size: 17),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _dateRange == null
+            ? _LeadTheme.textSoft
+            : _LeadTheme.primary,
+        backgroundColor: Colors.white,
+        side: BorderSide(
+          color: _dateRange == null
+              ? _LeadTheme.border
+              : _LeadTheme.primary.withOpacity(.25),
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        textStyle: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  void _resetFilters() {
+    setState(() {
+      _q = '';
+      _sortBy = 'latest';
+      _filterType = 'all';
+      _dateRange = null;
+      _duplicatesOnly = false;
+    });
+  }
+
+  Widget _buildLeadSummary(int totalLeads) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 5, 16, 5),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            decoration: BoxDecoration(
+              color: _LeadTheme.primarySoft,
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(
+                color: _LeadTheme.primary.withOpacity(.08),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.auto_graph_rounded,
+                  size: 16,
+                  color: _LeadTheme.primary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '$totalLeads Leads',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: _LeadTheme.primary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          Text(
+            'Tap a lead to open full journey',
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+              color: _LeadTheme.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLeadCard(Map<String, dynamic> l, int index) {
+    final name = (l['customerName'] ?? 'Customer').toString().trim();
+    final type = (l['type'] ?? 'equipment').toString().toLowerCase();
+    final status = (l['status'] ?? 'new').toString();
+    final duplicate = l['isDuplicate'] == true;
+
+    final typeColor = _leadTypeColor(type);
+    final typeIcon = _leadTypeIcon(type);
+    final initial = name.isEmpty ? 'C' : name[0].toUpperCase();
+
+    final leadId = (l['id'] ?? '').toString();
+    final timeline = _timelineCache[leadId];
+
+    // Start loading the relationship summary lazily for visible cards.
+    if (leadId.isNotEmpty &&
+        timeline == null &&
+        !_timelineLoading.contains(leadId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadLeadTimeline(leadId);
+      });
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: _leadCardDecoration(radius: 24),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => LeadDetailsScreen(lead: l),
+              ),
+            );
+          },
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 15),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 51,
+                      height: 51,
+                      decoration: BoxDecoration(
+                        color: typeColor.withOpacity(.10),
+                        borderRadius: BorderRadius.circular(17),
+                      ),
+                      child: Center(
+                        child: Text(
+                          initial,
+                          style: TextStyle(
+                            color: typeColor,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name.isEmpty ? 'Customer' : name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              color: _LeadTheme.text,
+                              letterSpacing: -.2,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Row(
+                            children: [
+                              Icon(
+                                typeIcon,
+                                size: 13,
+                                color: typeColor,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                _prettyType(type),
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: typeColor,
+                                ),
+                              ),
+                              if ((l['leadSource'] ?? '')
+                                  .toString()
+                                  .trim()
+                                  .isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  width: 3,
+                                  height: 3,
+                                  decoration: const BoxDecoration(
+                                    color: _LeadTheme.muted,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    l['leadSource'].toString(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: _LeadTheme.muted,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    _statusChip(status),
+                    const SizedBox(width: 5),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: _LeadTheme.muted,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _buildLeadContactStrip(l),
+                const SizedBox(height: 14),
+                _buildMiniJourney(
+                  l,
+                  timeline,
+                ),
+                if (duplicate) ...[
+                  const SizedBox(height: 11),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _LeadTheme.error.withOpacity(.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _LeadTheme.error.withOpacity(.12),
+                      ),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          size: 16,
+                          color: _LeadTheme.error,
+                        ),
+                        SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            'Potential duplicate lead detected',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: _LeadTheme.error,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLeadContactStrip(Map<String, dynamic> l) {
+    final phone = (l['phone'] ?? '').toString().trim();
+    final email = (l['email'] ?? '').toString().trim();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 11,
+        vertical: 9,
+      ),
+      decoration: BoxDecoration(
+        color: _LeadTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.phone_outlined,
+            size: 15,
+            color: _LeadTheme.primary,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              phone.isEmpty ? 'No phone number' : phone,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: _LeadTheme.textSoft,
+              ),
+            ),
+          ),
+          if (email.isNotEmpty) ...[
+            Container(
+              width: 1,
+              height: 17,
+              color: _LeadTheme.border,
+            ),
+            const SizedBox(width: 9),
+            const Icon(
+              Icons.mail_outline_rounded,
+              size: 15,
+              color: _LeadTheme.primary,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                email,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: _LeadTheme.textSoft,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniJourney(
+    Map<String, dynamic> lead,
+    _LeadTimelineData? data,
+  ) {
+    final stages = <_JourneyStage>[
+      _JourneyStage(
+        label: 'Lead',
+        icon: Icons.person_add_alt_1_rounded,
+        color: _LeadTheme.primary,
+        active: true,
+        date: _dateFromValue(lead['createdAt']),
+      ),
+      _JourneyStage(
+        label: 'Requirement',
+        icon: Icons.assignment_outlined,
+        color: _LeadTheme.indigo,
+        active: data?.hasRequirement == true,
+        date: data?.requirementDate,
+      ),
+      _JourneyStage(
+        label: 'Quotation',
+        icon: Icons.request_quote_outlined,
+        color: _LeadTheme.purple,
+        active: data?.hasQuotation == true,
+        date: data?.quotationDate,
+      ),
+      _JourneyStage(
+        label: 'Order',
+        icon: Icons.shopping_bag_outlined,
+        color: _LeadTheme.green,
+        active: data?.hasOrder == true,
+        date: data?.orderDate,
+      ),
+    ];
+
+    final loadingTimeline =
+        data == null && (lead['id'] ?? '').toString().isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 11),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: _LeadTheme.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.route_rounded,
+                size: 15,
+                color: _LeadTheme.textSoft,
+              ),
+              const SizedBox(width: 6),
+              const Text(
+                'Customer journey',
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                  color: _LeadTheme.textSoft,
+                ),
+              ),
+              const Spacer(),
+              if (loadingTimeline)
+                const SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 1.7,
+                    color: _LeadTheme.primary,
+                  ),
+                )
+              else
+                Text(
+                  _journeyLabel(data),
+                  style: const TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
+                    color: _LeadTheme.muted,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              for (int i = 0; i < stages.length; i++) ...[
+                Expanded(
+                  child: _journeyStageTile(stages[i]),
+                ),
+                if (i != stages.length - 1)
+                  SizedBox(
+                    width: 12,
+                    child: Center(
+                      child: Container(
+                        height: 2,
+                        color: stages[i + 1].active
+                            ? stages[i + 1].color.withOpacity(.35)
+                            : _LeadTheme.border,
+                      ),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _journeyStageTile(_JourneyStage stage) {
+    return Column(
+      children: [
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          width: 35,
+          height: 35,
+          decoration: BoxDecoration(
+            color: stage.active
+                ? stage.color.withOpacity(.10)
+                : _LeadTheme.surfaceAlt,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: stage.active
+                  ? stage.color.withOpacity(.20)
+                  : _LeadTheme.border,
+            ),
+          ),
+          child: Icon(
+            stage.active
+                ? Icons.check_rounded
+                : stage.icon,
+            size: 17,
+            color: stage.active
+                ? stage.color
+                : _LeadTheme.muted,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          stage.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: stage.active
+                ? stage.color
+                : _LeadTheme.muted,
+          ),
+        ),
+        if (stage.active && stage.date != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            _shortDate(stage.date!),
+            style: const TextStyle(
+              fontSize: 7.5,
+              fontWeight: FontWeight.w600,
+              color: _LeadTheme.muted,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Future<void> _loadLeadTimeline(String leadId) async {
+    if (_timelineLoading.contains(leadId)) return;
+
+    _timelineLoading.add(leadId);
+
+    try {
+      final db = FirebaseFirestore.instance;
+
+      final results = await Future.wait([
+        db
+            .collection('requirements')
+            .where('leadId', isEqualTo: leadId)
+            .limit(1)
+            .get(),
+        db
+            .collection('quotations')
+            .where('leadId', isEqualTo: leadId)
+            .limit(1)
+            .get(),
+        db
+            .collection('orders')
+            .where('leadId', isEqualTo: leadId)
+            .limit(1)
+            .get(),
+        db
+            .collection('nursingOrders')
+            .where('leadId', isEqualTo: leadId)
+            .limit(1)
+            .get(),
+      ]);
+
+      final requirements = results[0] as QuerySnapshot<Map<String, dynamic>>;
+      final quotations = results[1] as QuerySnapshot<Map<String, dynamic>>;
+      final equipmentOrders =
+          results[2] as QuerySnapshot<Map<String, dynamic>>;
+      final nursingOrders =
+          results[3] as QuerySnapshot<Map<String, dynamic>>;
+
+      final requirementDate = requirements.docs.isEmpty
+          ? null
+          : _dateFromValue(
+              requirements.docs.first.data()['createdAt'],
+            );
+
+      final quotationDate = quotations.docs.isEmpty
+          ? null
+          : _dateFromValue(
+              quotations.docs.first.data()['createdAt'],
+            );
+
+      final orderDocs = [
+        ...equipmentOrders.docs,
+        ...nursingOrders.docs,
+      ];
+
+      DateTime? orderDate;
+      if (orderDocs.isNotEmpty) {
+        orderDate = _dateFromValue(
+          orderDocs.first.data()['createdAt'],
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _timelineCache[leadId] = _LeadTimelineData(
+          hasRequirement: requirements.docs.isNotEmpty,
+          hasQuotation: quotations.docs.isNotEmpty,
+          hasOrder: orderDocs.isNotEmpty,
+          requirementDate: requirementDate,
+          quotationDate: quotationDate,
+          orderDate: orderDate,
+        );
+      });
+    } catch (e) {
+      debugPrint('Lead timeline error for $leadId: $e');
+      if (mounted) {
+        setState(() {
+          _timelineCache[leadId] = const _LeadTimelineData();
+        });
+      }
+    } finally {
+      _timelineLoading.remove(leadId);
+    }
+  }
+
+  String _journeyLabel(_LeadTimelineData? data) {
+    if (data == null) return 'Loading journey...';
+    if (data.hasOrder) return 'Order created';
+    if (data.hasQuotation) return 'Quotation ready';
+    if (data.hasRequirement) return 'Requirement added';
+    return 'Lead created';
+  }
+
+  Color _leadTypeColor(String type) {
+    switch (type) {
+      case 'nursing':
+        return _LeadTheme.blue;
+      case 'caretaker':
+        return _LeadTheme.purple;
+      case 'equipment':
+      default:
+        return _LeadTheme.indigo;
+    }
+  }
+
+  IconData _leadTypeIcon(String type) {
+    switch (type) {
+      case 'nursing':
+        return Icons.local_hospital_outlined;
+      case 'caretaker':
+        return Icons.health_and_safety_outlined;
+      case 'equipment':
+      default:
+        return Icons.medical_services_outlined;
+    }
+  }
+
+  String _prettyType(String type) {
+    switch (type) {
+      case 'nursing':
+        return 'Nursing';
+      case 'caretaker':
+        return 'Caretaker';
+      case 'equipment':
+        return 'Equipment';
+      default:
+        if (type.isEmpty) return 'Lead';
+        return '${type[0].toUpperCase()}${type.substring(1)}';
+    }
+  }
+
+  DateTime? _dateFromValue(dynamic value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is String) return DateTime.tryParse(value);
+    return null;
+  }
+
+  String _shortDate(DateTime date) {
+    final d = date.toLocal();
+    return '${d.day}/${d.month}';
+  }
+
+  BoxDecoration _leadCardDecoration({double radius = 20}) {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(color: _LeadTheme.border),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(.035),
+          blurRadius: 18,
+          offset: const Offset(0, 7),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Container(
+          padding: const EdgeInsets.all(28),
+          decoration: _leadCardDecoration(radius: 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 70,
+                height: 70,
+                decoration: BoxDecoration(
+                  color: _LeadTheme.primarySoft,
+                  borderRadius: BorderRadius.circular(23),
+                ),
+                child: const Icon(
+                  Icons.search_off_rounded,
+                  size: 32,
+                  color: _LeadTheme.primary,
+                ),
+              ),
+              const SizedBox(height: 15),
+              const Text(
+                'No leads found',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  color: _LeadTheme.text,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Try changing your search or filters.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: _LeadTheme.muted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 15),
+              OutlinedButton.icon(
+                onPressed: _resetFilters,
+                icon: const Icon(Icons.restart_alt_rounded, size: 17),
+                label: const Text('Clear Filters'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingAddButton() {
+    return FloatingActionButton.extended(
+      onPressed: _addLeadSheet,
+      backgroundColor: _LeadTheme.primary,
+      foregroundColor: Colors.white,
+      elevation: 7,
+      icon: const Icon(Icons.add_rounded),
+      label: const Text(
+        'Add Lead',
+        style: TextStyle(
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
 Widget _statusChip(String status) {
   final value = status.toLowerCase();
 
@@ -2715,6 +3270,65 @@ Widget _statusChip(String status) {
   
 
  
+}
+
+class _LeadTimelineData {
+  final bool hasRequirement;
+  final bool hasQuotation;
+  final bool hasOrder;
+  final DateTime? requirementDate;
+  final DateTime? quotationDate;
+  final DateTime? orderDate;
+
+  const _LeadTimelineData({
+    this.hasRequirement = false,
+    this.hasQuotation = false,
+    this.hasOrder = false,
+    this.requirementDate,
+    this.quotationDate,
+    this.orderDate,
+  });
+}
+
+class _JourneyStage {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final bool active;
+  final DateTime? date;
+
+  const _JourneyStage({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.active,
+    this.date,
+  });
+}
+
+/// Fixed premium light palette matching the lead/detail screens.
+class _LeadTheme {
+  static const background = Color(0xfff6f8fc);
+  static const surfaceAlt = Color(0xfff1f4f9);
+
+  static const text = Color(0xff101828);
+  static const textSoft = Color(0xff344054);
+  static const muted = Color(0xff667085);
+
+  static const border = Color(0xffe4e7ec);
+  static const divider = Color(0xffedf0f4);
+
+  static const primary = Color(0xff3157d5);
+  static const primarySoft = Color(0xffeef2ff);
+
+  static const heroDark = Color(0xff172554);
+  static const heroLight = Color(0xff3157d5);
+
+  static const indigo = Color(0xff4f46e5);
+  static const purple = Color(0xff7c3aed);
+  static const green = Color(0xff059669);
+  static const blue = Color(0xff2563eb);
+  static const error = Color(0xffdc2626);
 }
 
 class _LeadActions extends StatelessWidget {

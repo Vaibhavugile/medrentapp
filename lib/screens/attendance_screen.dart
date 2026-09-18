@@ -610,321 +610,1252 @@ Future<void> _showBackgroundPermissionGuide() async {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final date = _att.todayISO();
 
     if (loading) {
       return const Scaffold(
-        body: SafeArea(
-          child: Center(child: CircularProgressIndicator()),
+        backgroundColor: _AttendanceTheme.background,
+        body: Center(
+          child: CircularProgressIndicator(
+            color: _AttendanceTheme.primary,
+            strokeWidth: 2.8,
+          ),
         ),
       );
     }
 
     final shifts = _getShiftsSorted(att);
     final latestOpen = _latestOpenShiftNumber(att);
+    final hasPhoto = _attendanceImage != null;
+    final crossDateOpen = _openShiftDate != null && _openShiftDate != date;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Attendance'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Center(
-              child: _Chip(
-                label: tracking ? 'Tracking ON' : 'Tracking OFF',
-                color: tracking
-                    ? theme.colorScheme.primaryContainer
-                    : theme.colorScheme.surfaceVariant,
-                icon: tracking ? Icons.fmd_good : Icons.fmd_bad_outlined,
-              ),
-            ),
-          ),
-        ],
-      ),
+      backgroundColor: _AttendanceTheme.background,
       body: SafeArea(
         child: RefreshIndicator(
+          color: _AttendanceTheme.primary,
           onRefresh: _load,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              // Status card
-              Card(
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _Chip(
-                              label: 'Date: $date',
-                              icon: Icons.calendar_today),
-                          _Chip(
-                            label:
-                                'Status: ${(att?['status'] ?? '—').toString()}',
-                            icon: Icons.verified_user_outlined,
-                          ),
-                          _Chip(
-                            label: 'Shifts: ${shifts.length}',
-                            icon: Icons.schedule,
-                          ),
-                          _Chip(
-  label: 'Check-in: ${timeFromTimestamp(att?['checkInServer'])}',
-  icon: Icons.login,
-),
-                          _Chip(
-  label: 'Check-out: ${timeFromTimestamp(att?['checkOutServer'])}',
-  icon: Icons.logout,
-),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _noteController,
-                        minLines: 2,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          labelText: 'Note for today',
-                          hintText: 'Add a short note…',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          isDense: true,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tracking saves every ~90s or when moved ≥50m.',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface.withOpacity(.6),
-                        ),
-                      ),
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
+              SliverToBoxAdapter(
+                child: _buildAttendanceHero(
+                  date: date,
+                  shifts: shifts.length,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 130),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _buildLiveStatusCard(),
+                    const SizedBox(height: 14),
+                    _buildTodaySummaryCard(
+                      date: date,
+                      shiftCount: shifts.length,
+                    ),
+                                        _buildCameraCard(hasPhoto),
+                                                            const SizedBox(height: 14),
+
+
+                    // _buildNoteCard(),
+                    const SizedBox(height: 14),
+                    if (crossDateOpen) ...[
+                      const SizedBox(height: 14),
+                      _buildCrossDateCard(),
                     ],
-                  ),
+                    const SizedBox(height: 22),
+                    _buildShiftSectionHeader(shifts.length),
+                    const SizedBox(height: 10),
+                    if (shifts.isEmpty)
+                      _buildNoShiftCard()
+                    else
+                      ...shifts.map(_buildShiftTimelineItem),
+                    const SizedBox(height: 20),
+                    // _buildQuickActions(),
+                  ]),
                 ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // ✅ Camera capture card (tap to open in-app camera, preview image)
-              GestureDetector(
-                onTap: saving ? null : _captureAttendanceImage,
-                child: Container(
-                  height: 160,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: _attendanceImage == null
-                          ? theme.colorScheme.error.withOpacity(0.7)
-                          : theme.colorScheme.outline,
-                    ),
-                    color: theme.colorScheme.surfaceVariant,
-                  ),
-                  child: _attendanceImage == null
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.camera_alt,
-                              size: 40,
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Tap to capture photo (required for check-in / check-out)',
-                              textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        )
-                      : ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Image.file(
-                            _attendanceImage!,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                          ),
-                        ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              if (_openShiftDate != null && _openShiftDate != date)
-                Card(
-                  color: theme.colorScheme.surfaceVariant,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Open shift from ${_openShiftDate}',
-                                style: theme.textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                'Shift #${_openShiftNumberAcrossDates ?? '—'} — still open. Tap Checkout to close this shift.',
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: (saving || _attendanceImage == null)
-                              ? null
-                              : () => checkOut(
-                                  shiftNumber:
-                                      _openShiftNumberAcrossDates),
-                          child: const Text('Checkout'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              const SizedBox(height: 12),
-
-              if (shifts.isEmpty)
-                Card(
-                  child: ListTile(
-                    title: const Text('No shifts yet today'),
-                    subtitle: const Text('Tap Check-in to start a shift.'),
-                  ),
-                )
-              else
-                ...shifts.map((e) {
-                  final number = e.key;
-                  final data = e.value;
-                  final checkInServer = data['checkInServer'];
-final checkOutServer = data['checkOutServer'];
-                  final status = (data['status'] ?? '').toString();
-                  final noteText = (data['note'] ?? '').toString();
-                  final checkInTime = checkInServer != null ? timeFromTimestamp(checkInServer) : '—';
-final checkOutTime = checkOutServer != null ? timeFromTimestamp(checkOutServer) : '—';
-                  final isOpen =  checkOutServer == null;
-
-                  return Card(
-                    child: ListTile(
-                      leading: CircleAvatar(child: Text(number.toString())),
-                      title: Text(
-                          'Shift $number — ${status.isNotEmpty ? status : '—'}'),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('In: $checkInTime — Out: $checkOutTime'),
-                          if (noteText.isNotEmpty) Text('Note: $noteText'),
-                        ],
-                      ),
-                      trailing: isOpen
-                          ? PopupMenuButton<String>(
-                              onSelected: (v) {
-                                if (v == 'checkout') {
-                                  if (_attendanceImage == null) {
-                                    showSnack(context,
-                                        'Please capture a photo before checking out');
-                                  } else {
-                                    checkOut(shiftNumber: number);
-                                  }
-                                }
-                              },
-                              itemBuilder: (_) => const [
-                                PopupMenuItem(
-                                  value: 'checkout',
-                                  child: Text('Check out this shift'),
-                                ),
-                              ],
-                              icon: const Icon(Icons.more_vert),
-                            )
-                          : null,
-                    ),
-                  );
-                }).toList(),
-
-              const SizedBox(height: 24),
-
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _ActionTile(
-                    label: canCheckIn ? 'Check-in' : 'Checked-in',
-                    icon: Icons.login,
-                    onTap: (!saving &&
-                            canCheckIn &&
-                            _attendanceImage != null)
-                        ? checkIn
-                        : null,
-                    tone: _ActionTone.primary,
-                  ),
-                  _ActionTile(
-                    label: canCheckOut ? 'Check-out' : 'Checked-out',
-                    icon: Icons.logout,
-                    onTap: (!saving &&
-                            canCheckOut &&
-                            _attendanceImage != null)
-                        ? () => checkOut(shiftNumber: latestOpen)
-                        : null,
-                    tone: _ActionTone.secondary,
-                  ),
-                  _ActionTile(
-                    label: 'More',
-                    icon: Icons.more_horiz,
-                    onTap: saving ? null : _showMoreSheet,
-                    tone: _ActionTone.neutral,
-                  ),
-                ],
               ),
             ],
           ),
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: SizedBox(
-            height: 56,
-            child: ElevatedButton.icon(
-              onPressed: saving
-                  ? null
-                  : (canCheckOut && _attendanceImage != null)
-                      ? () => checkOut(shiftNumber: latestOpen)
-                      : (canCheckIn && _attendanceImage != null)
-                          ? checkIn
-                          : null,
-              icon: Icon(canCheckOut ? Icons.logout : Icons.login),
-              label: Text(
-                canCheckOut
-                    ? 'Check-out'
-                    : (canCheckIn ? 'Check-in' : 'Done for today'),
-                overflow: TextOverflow.ellipsis,
+      bottomNavigationBar: _buildBottomAction(latestOpen: latestOpen),
+    );
+  }
+
+  Widget _buildAttendanceHero({
+    required String date,
+    required int shifts,
+  }) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 22),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [_AttendanceTheme.heroDark, _AttendanceTheme.primary],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _heroIconButton(
+                icon: Icons.arrow_back_rounded,
+                onTap: () => Navigator.maybePop(context),
               ),
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                textStyle: const TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.w700),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Attendance",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -.3,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      "Daily workforce attendance",
+                      style: TextStyle(
+                        color: Color(0xB3FFFFFF),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              _trackingBadge(),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _heroMetric(
+                  icon: Icons.calendar_today_rounded,
+                  label: "TODAY",
+                  value: date,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: _heroMetric(
+                  icon: Icons.layers_rounded,
+                  label: "SHIFTS",
+                  value: "$shifts",
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: _heroMetric(
+                  icon: Icons.access_time_rounded,
+                  label: "STATUS",
+                  value: tracking ? "ACTIVE" : "IDLE",
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heroIconButton({
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white.withOpacity(.10),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: Colors.white.withOpacity(.14)),
+          ),
+          child: Icon(icon, color: Colors.white, size: 20),
+        ),
+      ),
+    );
+  }
+
+  Widget _trackingBadge() {
+    final active = tracking;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: active
+            ? _AttendanceTheme.green.withOpacity(.16)
+            : Colors.white.withOpacity(.10),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: active
+              ? _AttendanceTheme.green.withOpacity(.35)
+              : Colors.white.withOpacity(.14),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            active
+                ? Icons.location_on_rounded
+                : Icons.location_off_rounded,
+            size: 15,
+            color: active
+                ? const Color(0xff86EFAC)
+                : Colors.white.withOpacity(.70),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            active ? "Tracking ON" : "Tracking OFF",
+            style: TextStyle(
+              color: active
+                  ? const Color(0xffDCFCE7)
+                  : Colors.white.withOpacity(.78),
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _heroMetric({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.09),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.white.withOpacity(.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: Colors.white.withOpacity(.70)),
+          const SizedBox(height: 7),
+          Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(.52),
+              fontSize: 8,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .5,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLiveStatusCard() {
+    final status = (att?['status'] ?? 'Not marked').toString();
+    final open = canCheckOut;
+
+    return _premiumSectionCard(
+      child: Row(
+        children: [
+          _iconBox(
+            open ? Icons.radio_button_checked_rounded : Icons.verified_rounded,
+            open ? _AttendanceTheme.green : _AttendanceTheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  open ? "Work session active" : "Attendance status",
+                  style: const TextStyle(
+                    color: _AttendanceTheme.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  open
+                      ? "A shift is currently open"
+                      : "Current status: $status",
+                  style: const TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          _statusPill(
+            open ? "ACTIVE" : "READY",
+            open ? _AttendanceTheme.green : _AttendanceTheme.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTodaySummaryCard({
+    required String date,
+    required int shiftCount,
+  }) {
+    return _premiumSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle(
+            icon: Icons.today_rounded,
+            title: "Today's Summary",
+            subtitle: "Quick overview of your attendance",
+          ),
+          const SizedBox(height: 15),
+          Row(
+            children: [
+              Expanded(
+                child: _summaryMetric(
+                  "Check-in",
+                  timeFromTimestamp(att?['checkInServer']),
+                  Icons.login_rounded,
+                  _AttendanceTheme.green,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _summaryMetric(
+                  "Check-out",
+                  timeFromTimestamp(att?['checkOutServer']),
+                  Icons.logout_rounded,
+                  _AttendanceTheme.red,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _summaryMetric(
+                  "Shifts",
+                  "$shiftCount",
+                  Icons.layers_rounded,
+                  _AttendanceTheme.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _summaryMetric(
+                  "Date",
+                  date,
+                  Icons.calendar_month_rounded,
+                  _AttendanceTheme.orange,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _premiumSectionCard({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _AttendanceTheme.border),
+        boxShadow: _AttendanceTheme.shadow,
+      ),
+      child: child,
+    );
+  }
+
+  Widget _sectionTitle({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Row(
+      children: [
+        _iconBox(icon, _AttendanceTheme.primary),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: _AttendanceTheme.text,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: const TextStyle(
+                  color: _AttendanceTheme.muted,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _iconBox(IconData icon, Color color) {
+    return Container(
+      width: 43,
+      height: 43,
+      decoration: BoxDecoration(
+        color: color.withOpacity(.10),
+        borderRadius: BorderRadius.circular(13),
+      ),
+      child: Icon(icon, color: color, size: 20),
+    );
+  }
+
+  Widget _statusPill(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(.09),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: .4,
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryMetric(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          _iconBox(icon, color),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _AttendanceTheme.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoteCard() {
+    return _premiumSectionCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle(
+            icon: Icons.sticky_note_2_rounded,
+            title: "Today's Note",
+            subtitle: "Add a note related to this attendance",
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _noteController,
+            minLines: 2,
+            maxLines: 5,
+            textInputAction: TextInputAction.newline,
+            decoration: InputDecoration(
+              hintText: "Add a short note…",
+              hintStyle: const TextStyle(
+                color: _AttendanceTheme.muted,
+                fontSize: 13,
+              ),
+              filled: true,
+              fillColor: _AttendanceTheme.surfaceAlt,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: _AttendanceTheme.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(
+                  color: _AttendanceTheme.primary,
+                  width: 1.3,
+                ),
+              ),
+              contentPadding: const EdgeInsets.all(13),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Row(
+            children: [
+              Icon(
+                Icons.info_outline_rounded,
+                size: 15,
+                color: _AttendanceTheme.muted,
+              ),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  "Location tracking saves approximately every 90 seconds or after 50m movement.",
+                  style: TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraCard(bool hasPhoto) {
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: saving ? null : _captureAttendanceImage,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          height: hasPhoto ? 210 : 174,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: hasPhoto
+                ? _AttendanceTheme.surface
+                : _AttendanceTheme.primarySoft,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: hasPhoto
+                  ? _AttendanceTheme.border
+                  : _AttendanceTheme.primary.withOpacity(.25),
+              width: 1.2,
+            ),
+            boxShadow: _AttendanceTheme.shadow,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: hasPhoto
+              ? Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Image.file(_attendanceImage!, fit: BoxFit.cover),
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(.94),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              color: _AttendanceTheme.green,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 7),
+                            const Expanded(
+                              child: Text(
+                                "Photo captured • Tap to retake",
+                                style: TextStyle(
+                                  color: _AttendanceTheme.text,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            const Icon(
+                              Icons.camera_alt_rounded,
+                              color: _AttendanceTheme.primary,
+                              size: 18,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        boxShadow: _AttendanceTheme.shadow,
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: _AttendanceTheme.primary,
+                        size: 27,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "Capture attendance photo",
+                      style: TextStyle(
+                        color: _AttendanceTheme.text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "Required before check-in / check-out",
+                      style: TextStyle(
+                        color: _AttendanceTheme.muted,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCrossDateCard() {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.orange.withOpacity(.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: _AttendanceTheme.orange.withOpacity(.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          _iconBox(Icons.warning_amber_rounded, _AttendanceTheme.orange),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Open shift from $_openShiftDate",
+                  style: const TextStyle(
+                    color: _AttendanceTheme.text,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  "Shift #${_openShiftNumberAcrossDates ?? '—'} is still open. Use Checkout to close it.",
+                  style: const TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: 11,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _compactButton(
+            label: "Checkout",
+            icon: Icons.logout_rounded,
+            color: _AttendanceTheme.orange,
+            onTap: saving || _attendanceImage == null
+                ? null
+                : () => checkOut(
+                      shiftNumber: _openShiftNumberAcrossDates,
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShiftSectionHeader(int count) {
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Shift Timeline",
+                style: TextStyle(
+                  color: _AttendanceTheme.text,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              SizedBox(height: 3),
+              Text(
+                "Today's attendance sessions",
+                style: TextStyle(
+                  color: _AttendanceTheme.muted,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: _AttendanceTheme.primarySoft,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            "$count ${count == 1 ? 'shift' : 'shifts'}",
+            style: const TextStyle(
+              color: _AttendanceTheme.primary,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildShiftTimelineItem(
+    MapEntry<int, Map<String, dynamic>> entry,
+  ) {
+    final number = entry.key;
+    final data = entry.value;
+    final checkIn = data['checkInServer'];
+    final checkOut = data['checkOutServer'];
+    final status = (data['status'] ?? '').toString();
+    final noteText = (data['note'] ?? '').toString();
+    final open = checkOut == null;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 30,
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                width: 15,
+                height: 15,
+                decoration: BoxDecoration(
+                  color: _AttendanceTheme.surface,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: open
+                        ? _AttendanceTheme.green
+                        : _AttendanceTheme.primary,
+                    width: 4,
+                  ),
+                ),
+              ),
+              Container(
+                width: 2,
+                height: open ? 225 : 170,
+                color: _AttendanceTheme.border,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: _AttendanceTheme.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: open
+                    ? _AttendanceTheme.green.withOpacity(.30)
+                    : _AttendanceTheme.border,
+              ),
+              boxShadow: _AttendanceTheme.shadow,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Row(
+                        children: [
+                          _numberBadge(number),
+                          const SizedBox(width: 10),
+                          const Text(
+                            "Shift",
+                            style: TextStyle(
+                              color: _AttendanceTheme.text,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _statusPill(
+                      open
+                          ? "OPEN"
+                          : (status.isEmpty ? "COMPLETED" : status),
+                      open
+                          ? _AttendanceTheme.green
+                          : _AttendanceTheme.primary,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 15),
+                _shiftInfoRow(
+                  Icons.login_rounded,
+                  "Check In",
+                  checkIn == null ? "—" : timeFromTimestamp(checkIn),
+                  _AttendanceTheme.green,
+                ),
+                const SizedBox(height: 9),
+                _shiftInfoRow(
+                  Icons.logout_rounded,
+                  "Check Out",
+                  checkOut == null ? "Still open" : timeFromTimestamp(checkOut),
+                  _AttendanceTheme.red,
+                ),
+                const SizedBox(height: 9),
+                _shiftInfoRow(
+                  Icons.location_on_outlined,
+                  "Tracking",
+                  open ? "Live" : "Stopped",
+                  _AttendanceTheme.primary,
+                ),
+                if (noteText.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(11),
+                    decoration: BoxDecoration(
+                      color: _AttendanceTheme.surfaceAlt,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      noteText,
+                      style: const TextStyle(
+                        color: _AttendanceTheme.textSoft,
+                        fontSize: 11,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ],
+                if (open) ...[
+                  const SizedBox(height: 13),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: saving || _attendanceImage == null
+                          ? null
+                          : () => checkOut(shiftNumber: number),
+                      icon: const Icon(Icons.logout_rounded, size: 17),
+                      label: const Text("Check out this shift"),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _AttendanceTheme.red,
+                        side: BorderSide(
+                          color: _AttendanceTheme.red.withOpacity(.28),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _numberBadge(int number) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.primarySoft,
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Center(
+        child: Text(
+          "$number",
+          style: const TextStyle(
+            color: _AttendanceTheme.primary,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _shiftInfoRow(
+    IconData icon,
+    String label,
+    String value,
+    Color color,
+  ) {
+    return Row(
+      children: [
+        Container(
+          width: 31,
+          height: 31,
+          decoration: BoxDecoration(
+            color: color.withOpacity(.10),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(icon, color: color, size: 16),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _AttendanceTheme.muted,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: _AttendanceTheme.text,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _numberedEmptyState() => const SizedBox.shrink();
+
+  Widget _buildNoShiftCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 28),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _AttendanceTheme.border),
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.schedule_rounded,
+              color: _AttendanceTheme.muted, size: 42),
+          SizedBox(height: 10),
+          Text(
+            "No shifts yet today",
+            style: TextStyle(
+              color: _AttendanceTheme.text,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          SizedBox(height: 4),
+          Text(
+            "Capture a photo and use Check-in to start your shift.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _AttendanceTheme.muted,
+              fontSize: 11,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "Quick Actions",
+          style: TextStyle(
+            color: _AttendanceTheme.text,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _quickAction(
+                icon: Icons.login_rounded,
+                title: canCheckIn ? "Check-in" : "Checked-in",
+                subtitle: "Start shift",
+                color: _AttendanceTheme.primary,
+                enabled: !saving && canCheckIn && _attendanceImage != null,
+                onTap: checkIn,
               ),
             ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _quickAction(
+                icon: Icons.logout_rounded,
+                title: canCheckOut ? "Check-out" : "Checked-out",
+                subtitle: "End shift",
+                color: _AttendanceTheme.red,
+                enabled: !saving && canCheckOut && _attendanceImage != null,
+                onTap: () => checkOut(shiftNumber: latestOpen),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _quickAction(
+                icon: Icons.more_horiz_rounded,
+                title: "More",
+                subtitle: "Other status",
+                color: _AttendanceTheme.orange,
+                enabled: !saving,
+                onTap: _showMoreSheet,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _quickAction({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color color,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    return Opacity(
+      opacity: enabled ? 1 : .48,
+      child: Material(
+        color: _AttendanceTheme.surface,
+        borderRadius: BorderRadius.circular(17),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(17),
+          child: Container(
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(17),
+              border: Border.all(color: _AttendanceTheme.border),
+              boxShadow: _AttendanceTheme.shadow,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _iconBox(icon, color),
+                const SizedBox(height: 10),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _AttendanceTheme.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _AttendanceTheme.muted,
+                    fontSize: 9,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _compactButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return Opacity(
+      opacity: onTap == null ? .45 : 1,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 15),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: color,
+          side: BorderSide(color: color.withOpacity(.30)),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(11),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomAction({required int? latestOpen}) {
+    final canAction = !saving &&
+        ((canCheckOut && _attendanceImage != null) ||
+            (canCheckIn && _attendanceImage != null));
+    final checkout = canCheckOut;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 9, 16, 14),
+      decoration: BoxDecoration(
+        color: _AttendanceTheme.surface,
+        border: const Border(
+          top: BorderSide(color: _AttendanceTheme.border),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(.07),
+            blurRadius: 18,
+            offset: const Offset(0, -5),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        height: 54,
+        child: ElevatedButton(
+          onPressed: canAction
+              ? () {
+                  if (checkout) {
+                    checkOut(shiftNumber: latestOpen);
+                  } else {
+                    checkIn();
+                  }
+                }
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor:
+                checkout ? _AttendanceTheme.red : _AttendanceTheme.primary,
+            disabledBackgroundColor: _AttendanceTheme.surfaceAlt,
+            foregroundColor: Colors.white,
+            disabledForegroundColor: _AttendanceTheme.muted,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                checkout ? Icons.logout_rounded : Icons.login_rounded,
+                size: 20,
+              ),
+              const SizedBox(width: 9),
+              Flexible(
+                child: Text(
+                  saving
+                      ? "Processing..."
+                      : checkout
+                          ? "Check-out"
+                          : canCheckIn
+                              ? "Check-in"
+                              : "Done for today",
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -995,7 +1926,42 @@ final checkOutTime = checkOutServer != null ? timeFromTimestamp(checkOutServer) 
   }
 }
 
-// ---------- small UI helpers ----------
+// ---------- premium UI helpers ----------
+
+
+class _AttendanceTheme {
+  static const background = Color(0xffF6F8FC);
+  static const surface = Color(0xffFFFFFF);
+  static const surfaceAlt = Color(0xffF1F4F9);
+
+  static const text = Color(0xff101828);
+  static const textSoft = Color(0xff344054);
+  static const muted = Color(0xff667085);
+
+  static const border = Color(0xffE4E7EC);
+  static const borderStrong = Color(0xffD0D5DD);
+
+  static const primary = Color(0xff3157D5);
+  static const primarySoft = Color(0xffEEF2FF);
+  static const heroDark = Color(0xff172554);
+
+  static const green = Color(0xff059669);
+  static const greenSoft = Color(0xffECFDF3);
+  static const blue = Color(0xff2563EB);
+  static const orange = Color(0xffD97706);
+  static const red = Color(0xffDC2626);
+  static const redSoft = Color(0xffFEF2F2);
+
+  static List<BoxShadow> get shadow => [
+        BoxShadow(
+          color: Colors.black.withOpacity(.045),
+          blurRadius: 18,
+          offset: const Offset(0, 7),
+        ),
+      ];
+}
+
+
 
 class _Chip extends StatelessWidget {
   final String label;
