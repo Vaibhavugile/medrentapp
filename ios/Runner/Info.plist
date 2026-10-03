@@ -1,33 +1,51 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+
 <plist version="1.0">
 <dict>
 
-	<!-- Basic App Info -->
+	<!-- ============================= -->
+	<!-- BASIC APP INFO -->
+	<!-- ============================= -->
+
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+
 	<key>CFBundleDisplayName</key>
 	<string>BMM Workforces</string>
+
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+
 	<key>CFBundleName</key>
 	<string>driver_app</string>
+
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
+
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 
-	<!-- Launch & UI -->
+
+	<!-- ============================= -->
+	<!-- LAUNCH & UI -->
+	<!-- ============================= -->
+
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
+
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 
@@ -48,23 +66,29 @@
 
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
 
 	<!-- ============================= -->
 	<!-- LOCATION PERMISSIONS -->
 	<!-- ============================= -->
 
 	<key>NSLocationWhenInUseUsageDescription</key>
-<string>This app uses location to support active delivery tasks and route progress while the driver is working.</string>
+	<string>This app uses your location to support active delivery tasks and route progress while you are working.</string>
 
-<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-<string>This app requires background location to monitor active delivery routes and task progress during ongoing deliveries.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app requires background location access to monitor active delivery routes and task progress during ongoing deliveries.</string>
 
-<key>NSLocationAlwaysUsageDescription</key>
-<string>Location is used during active deliveries to ensure accurate route tracking and task completion.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>Location is used during active deliveries to ensure accurate route tracking and task completion.</string>
 
-	<!-- Enable Background Location -->
+
+	<!-- ============================= -->
+	<!-- BACKGROUND MODES -->
+	<!-- ============================= -->
+
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
@@ -72,15 +96,34 @@
 		<string>remote-notification</string>
 	</array>
 
+
 	<!-- ============================= -->
 	<!-- CAMERA PERMISSION -->
 	<!-- ============================= -->
 
 	<key>NSCameraUsageDescription</key>
-	<string>This app requires camera access for capturing delivery or verification images.</string>
+	<string>This app uses the camera to capture delivery, verification, and other required images.</string>
+
 
 	<!-- ============================= -->
-	<!-- NOTIFICATIONS -->
+	<!-- PHOTO LIBRARY PERMISSION -->
+	<!-- Required for App Store upload -->
+	<!-- ============================= -->
+
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app uses your photo library so you can select and upload delivery, verification, profile, and other required images.</string>
+
+
+	<!-- ============================= -->
+	<!-- PHOTO LIBRARY ADDITION -->
+	<!-- ============================= -->
+
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app may save captured or generated images to your photo library when required.</string>
+
+
+	<!-- ============================= -->
+	<!-- FIREBASE / NOTIFICATIONS -->
 	<!-- ============================= -->
 
 	<key>FirebaseAppDelegateProxyEnabled</key>
@@ -89,9 +132,9 @@
 	<key>NSUserNotificationAlertStyle</key>
 	<string>alert</string>
 
+
 	<!-- ============================= -->
 	<!-- NETWORK SETTINGS -->
-	<!-- (Remove if using HTTPS only) -->
 	<!-- ============================= -->
 
 	<key>NSAppTransportSecurity</key>
@@ -99,6 +142,7 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+
 
 </dict>
 </plist>
