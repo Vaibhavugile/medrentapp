@@ -517,7 +517,49 @@ class _TodayScreenState extends State<TodayScreen> {
     return double.tryParse(value.toString().replaceAll(',', '').replaceAll('₹', '').trim()) ?? 0;
   }
 
+  /// Reads the REAL order total from the order structure.
+  ///
+  /// Equipment orders in the CRM store pricing under:
+  ///   order['totals']['total']
+  ///
+  /// Some older / nursing order records can use a top-level amount field,
+  /// so those are supported as fallbacks.
   double _businessAmount(Map<String, dynamic> data) {
+    // ---------------------------------------------------------------
+    // PRIMARY SOURCE OF TRUTH
+    // ---------------------------------------------------------------
+    // EquipmentOrderDetailsScreen uses order["totals"]["total"].
+    final totals = _asMap(data['totals']);
+
+    if (totals != null) {
+      final total = _number(totals['total']);
+
+      // A stored total of 0 is still a valid stored total. Only fall
+      // through when the key does not exist.
+      if (totals.containsKey('total')) {
+        return total;
+      }
+
+      // Additional nested pricing fallbacks for legacy records.
+      const nestedKeys = [
+        'grandTotal',
+        'finalAmount',
+        'totalAmount',
+        'payableAmount',
+        'netAmount',
+        'amount',
+      ];
+
+      for (final key in nestedKeys) {
+        if (totals.containsKey(key)) {
+          return _number(totals[key]);
+        }
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // TOP-LEVEL FALLBACKS
+    // ---------------------------------------------------------------
     const keys = [
       'finalAmount',
       'totalAmount',
@@ -527,21 +569,20 @@ class _TodayScreenState extends State<TodayScreen> {
       'amount',
       'netAmount',
       'payableAmount',
-      'final_amount',
-      'total_amount',
-      'grand_total',
       'order_value',
       'orderValue',
       'businessGenerated',
       'business_generated',
       'businessAmount',
       'business_amount',
+      'final_amount',
+      'total_amount',
+      'grand_total',
     ];
 
     for (final key in keys) {
       if (data.containsKey(key)) {
-        final n = _number(data[key]);
-        if (n != 0) return n;
+        return _number(data[key]);
       }
     }
 
@@ -549,6 +590,30 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 
   double _quotationAmount(Map<String, dynamic> data) {
+    // Quotations may also use the same totals object.
+    final totals = _asMap(data['totals']);
+
+    if (totals != null) {
+      if (totals.containsKey('total')) {
+        return _number(totals['total']);
+      }
+
+      const nestedKeys = [
+        'grandTotal',
+        'finalAmount',
+        'totalAmount',
+        'payableAmount',
+        'netAmount',
+        'amount',
+      ];
+
+      for (final key in nestedKeys) {
+        if (totals.containsKey(key)) {
+          return _number(totals[key]);
+        }
+      }
+    }
+
     const keys = [
       'finalAmount',
       'totalAmount',
@@ -564,12 +629,21 @@ class _TodayScreenState extends State<TodayScreen> {
 
     for (final key in keys) {
       if (data.containsKey(key)) {
-        final n = _number(data[key]);
-        if (n != 0) return n;
+        return _number(data[key]);
       }
     }
 
     return 0;
+  }
+
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+
+    if (value is Map) {
+      return Map<String, dynamic>.from(value);
+    }
+
+    return null;
   }
 
   // ================================================================
@@ -723,7 +797,7 @@ class _TodayScreenState extends State<TodayScreen> {
         SizedBox(width: width, child: _metric('Quotations', '${r.quotations}', Icons.request_quote_rounded, orange)),
         SizedBox(width: width, child: _metric('Orders', '${r.orders}', Icons.receipt_long_rounded, purple)),
         SizedBox(width: width, child: _metric('Accepted Quotes', '${r.acceptedQuotations}', Icons.check_circle_rounded, green)),
-        SizedBox(width: width, child: _metric('Business', _money(r.business), Icons.currency_rupee_rounded, green)),
+        SizedBox(width: width, child: _metric('Order Business', _money(r.business), Icons.currency_rupee_rounded, green)),
         SizedBox(width: width, child: _metric('Created By Me', '${r.createdByMe}', Icons.person_add_alt_1_rounded, indigo)),
         SizedBox(width: width, child: _metric('Source Connected', '${r.sourceConnected}', Icons.link_rounded, purple)),
       ]);
